@@ -10,6 +10,10 @@ from PIL import Image
 from config import *
 from maps import get_grid_positions
 from algorithms import Agent, GlobalPlanner, SmartExit
+<<<<<<< HEAD
+=======
+from discretisatioin import Discretisation
+>>>>>>> 67fea02 (discrete working)
 
 # --- UI CLASSES ---
 class Button:
@@ -241,9 +245,19 @@ def main():
     buttons[2].active = True # 1x default
     
     # Dropdown for Algorithm Selection (Positioned in the middle gap)
+<<<<<<< HEAD
     algo_options = ["Electric Field", "Standard Path"]
     algo_dropdown = Dropdown(bx, by + 130, bw, 35, algo_options, default_index=0)
     
+=======
+    algo_options = ["Electric Field", "Standard Path", "Discrete Grid"]
+    algo_dropdown = Dropdown(bx, by + 130, bw, 35, algo_options, default_index=0)
+    
+    # Grid Toggle
+    btn_show_grid = Button(bx, by + 175, bw, 30, "Show Grid", "TOGGLE_GRID", toggle=True)
+    buttons.append(btn_show_grid)
+
+>>>>>>> 67fea02 (discrete working)
     # --- STATE ---
     state = "DRAWING"
     sim_speed = 1
@@ -279,8 +293,24 @@ def main():
             if event.type == pygame.QUIT: running = False
             
             # 1. Dropdown (High Priority)
+<<<<<<< HEAD
             if algo_dropdown.handle_event(event):
                 continue 
+=======
+            prev_algo = algo_dropdown.selected_index
+            if algo_dropdown.handle_event(event):
+                if algo_dropdown.selected_index != prev_algo and state in ["RUNNING", "PAUSED"]:
+                    if algo_dropdown.selected_index == 2:
+                        planner = Discretisation(custom_obstacles)
+                    else:
+                        planner = GlobalPlanner(custom_obstacles)
+                    
+                    if agents:
+                        for agent in agents:
+                            agent.planner = planner
+                            agent.recalc_path()
+                continue
+>>>>>>> 67fea02 (discrete working)
 
             # 2. Buttons
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -366,7 +396,14 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN and state == "DRAWING":
                     print("Initializing...")
+<<<<<<< HEAD
                     planner = GlobalPlanner(custom_obstacles)
+=======
+                    if algo_dropdown.selected_index == 2:
+                        planner = Discretisation(custom_obstacles)
+                    else:
+                        planner = GlobalPlanner(custom_obstacles)
+>>>>>>> 67fea02 (discrete working)
                     exit_manager = SmartExit(end_rect)
                     agents = []
                     for i in range(NUM_AGENTS):
@@ -393,6 +430,10 @@ def main():
         if state == "RUNNING":
             if exit_manager: exit_manager.register_agents(agents)
             use_electric = (algo_dropdown.selected_index == 0)
+<<<<<<< HEAD
+=======
+            if isinstance(planner, Discretisation): planner.set_agents(agents)
+>>>>>>> 67fea02 (discrete working)
 
             for _ in range(sim_speed):
                 if not use_electric:
@@ -476,6 +517,28 @@ def main():
         for obs in custom_obstacles:
             r = obs.move(PANEL_WIDTH, 0)
             pygame.draw.rect(screen, BLUE, r)
+<<<<<<< HEAD
+=======
+            
+        # Draw Discretisation Grid
+        if btn_show_grid.active:
+            viz_planner = planner
+            # If in DRAWING mode or using another planner, but "Discrete Grid" is selected in dropdown, visualize it anyway
+            if (viz_planner is None or not isinstance(viz_planner, Discretisation)) and algo_dropdown.selected_index == 2:
+                viz_planner = Discretisation(custom_obstacles)
+
+            if isinstance(viz_planner, Discretisation):
+                grid_cells = viz_planner.build_occupancy_grid(AGENT_RADIUS)
+                grid_surf = pygame.Surface((MAP_WIDTH, MAP_HEIGHT), pygame.SRCALPHA)
+                for (x, y, w, h, is_free) in grid_cells:
+                    r = pygame.Rect(x, y, w, h)
+                    if is_free:
+                        pygame.draw.rect(grid_surf, (0, 255, 0, 50), r, 1)
+                    else:
+                        pygame.draw.rect(grid_surf, (255, 0, 0, 100), r)
+                        pygame.draw.rect(grid_surf, (255, 0, 0), r, 1)
+                screen.blit(grid_surf, (PANEL_WIDTH, 0))
+>>>>>>> 67fea02 (discrete working)
         
         if current_drawing_rect:
             preview = [current_drawing_rect[0] + PANEL_WIDTH, current_drawing_rect[1], current_drawing_rect[2], current_drawing_rect[3]]

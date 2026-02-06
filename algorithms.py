@@ -2,6 +2,10 @@
 import pygame
 import math
 import heapq
+<<<<<<< HEAD
+=======
+import random
+>>>>>>> 67fea02 (discrete working)
 from collections import deque
 from config import *
 
@@ -120,7 +124,12 @@ class GlobalPlanner:
             if obs.collidepoint(p1) or obs.collidepoint(p2): return False
         return True
 
+<<<<<<< HEAD
     def find_path(self, start_pos, end_pos):
+=======
+    def find_path(self, agent, end_pos):
+        start_pos = agent.pos
+>>>>>>> 67fea02 (discrete working)
         for obs in self.bloated_obstacles:
             if obs.collidepoint(start_pos) or obs.collidepoint(end_pos): return None
         
@@ -178,11 +187,22 @@ class Agent:
         self.current_wp_index = 0
         self.velocity = pygame.Vector2(0, 0)
         self.color = RED
+<<<<<<< HEAD
+=======
+        self.patience = 0
+        self.patience_threshold = random.randint(30, 60)
+        self.push_state = 0 # Frames to ignore safety checks (break deadlocks)
+        self.prev_pos = pygame.Vector2(start)
+>>>>>>> 67fea02 (discrete working)
         self.recalc_path()
 
     def recalc_path(self):
         if not self.active: return
+<<<<<<< HEAD
         new_path = self.planner.find_path(self.pos, self.target_pos)
+=======
+        new_path = self.planner.find_path(self, self.target_pos)
+>>>>>>> 67fea02 (discrete working)
         if new_path:
             self.path = new_path
             self.current_wp_index = 0
@@ -193,17 +213,53 @@ class Agent:
     def local_safety_check(self, agents):
         self.waiting = False
         if not self.active: return
+<<<<<<< HEAD
         if self.velocity.length() > 0: heading = self.velocity.normalize()
         else: return
+=======
+        
+        # If in push mode, ignore safety checks to force movement
+        if self.push_state > 0:
+            self.push_state -= 1
+            return
+
+        # Determine heading: use velocity if moving, otherwise use path target
+        heading = None
+        if self.velocity.length() > 0.1:
+            heading = self.velocity.normalize()
+        elif self.path and self.current_wp_index < len(self.path):
+            tgt = pygame.Vector2(self.path[self.current_wp_index])
+            diff = tgt - self.pos
+            if diff.length() > 0.1: heading = diff.normalize()
+            
+        if heading is None: return
+
+>>>>>>> 67fea02 (discrete working)
         for other in agents:
             if other is self or not other.active: continue
             d_vec = other.pos - self.pos
             distance = d_vec.length()
             if distance < 0.1: continue 
+<<<<<<< HEAD
             if distance < VIEW_DISTANCE:
                 d_norm = d_vec.normalize()
                 angle = heading.dot(d_norm)
                 if angle > 0.7: self.waiting = True; return
+=======
+            if distance < VIEW_DISTANCE * 0.75: # Reduced view distance to prevent freezing in crowds
+                d_norm = d_vec.normalize()
+                angle = heading.dot(d_norm)
+                if angle > 0.9: 
+                    # Smart Following: Don't wait if the agent ahead is moving fast enough in the same direction
+                    if other.velocity.length() > 0.5:
+                        # Check if other is moving in roughly the same direction as my intended heading
+                        move_alignment = heading.dot(other.velocity.normalize())
+                        if move_alignment > 0.7:
+                             # If they are moving away/along path, don't wait unless we are very close
+                             if distance > AGENT_DIAMETER * 1.1:
+                                 continue
+                    self.waiting = True; return 
+>>>>>>> 67fea02 (discrete working)
 
     def resolve_collision(self, agents, obstacles):
         for obs in obstacles:
@@ -303,12 +359,45 @@ class Agent:
             self.velocity = pygame.Vector2(0,0)
 
     def update(self, end_rect):
+<<<<<<< HEAD
         if not self.active or not self.path_valid: return
+=======
+        if not self.active: return
+        
+        # RECOVERY: If path is invalid (stuck), try to find one again periodically
+        if not self.path_valid:
+            self.patience += 1
+            if self.patience > self.patience_threshold:
+                self.recalc_path()
+                self.patience = 0
+                self.patience_threshold = random.randint(30, 60)
+            return
+
+>>>>>>> 67fea02 (discrete working)
         self._check_parking_logic(end_rect)
         
         if self.spot_reserved:
             self.update_grid_step()
+<<<<<<< HEAD
         elif not self.waiting:
+=======
+        else:
+            # Calculate actual physical movement to detect if stuck
+            moved_dist = (self.pos - self.prev_pos).length()
+            self.prev_pos = pygame.Vector2(self.pos)
+
+            # Check patience: Only if NOT in push mode AND physically stuck
+            if self.push_state == 0 and self.path_valid and moved_dist < 0.5:
+                self.patience += 1
+                if self.patience > self.patience_threshold: # Re-plan after random interval
+                    self.recalc_path()
+                    self.patience = 0
+                    self.patience_threshold = random.randint(30, 60)
+                    self.push_state = 45 # Force movement for ~0.75s to break deadlock
+            else:
+                self.patience = 0
+
+>>>>>>> 67fea02 (discrete working)
             if self.current_wp_index < len(self.path):
                 target = pygame.Vector2(self.path[self.current_wp_index])
                 direction = target - self.pos

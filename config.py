@@ -2,6 +2,7 @@
 import pygame
 
 # --- DIMENSIONS ---
+<<<<<<< HEAD
 # Layout: [ Sidebar (200px) ] [ Left Map (650px) ] [ Right Map (650px) ]
 PANEL_WIDTH = 200
 MAP_WIDTH = 656
@@ -12,6 +13,18 @@ SCREEN_WIDTH = PANEL_WIDTH + (MAP_WIDTH * 2)
 SCREEN_HEIGHT = MAP_HEIGHT
 FPS = 60
 NUM_AGENTS = 16
+=======
+# Layout: [ Sidebar (200px) ] [ Map (800px) ]
+PANEL_WIDTH = 200
+MAP_WIDTH = 800
+MAP_HEIGHT = 700 
+
+# Total Window Size
+SCREEN_WIDTH = PANEL_WIDTH + MAP_WIDTH
+SCREEN_HEIGHT = MAP_HEIGHT
+FPS = 60
+NUM_AGENTS = 12
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
 # --- COLORS ---
 WHITE = (255, 255, 255)
@@ -38,6 +51,7 @@ AGENT_SPEED = 2.0
 VIEW_DISTANCE = 40      
 
 # --- PHYSICS CONSTANTS ---
+<<<<<<< HEAD
 SPRING_K = 0.5 
 DAMPING = 5.0  
 
@@ -46,6 +60,9 @@ DAMPING = 5.0
 PRIORITY_PENALTY_MULTIPLIER = 1.0
 WIDE_CORNER_MAX_MARGIN = 30.0
 K_ATTRACTION = 500.0
+=======
+K_ATTRACTION = 500.0  
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 K_AGENT = 1000.0  
 K_WALL = 1000.0   
 MAX_FORCE = 0.2

@@ -6,6 +6,7 @@ import sys
 import time
 import json
 import os
+<<<<<<< HEAD
 import math
 from PIL import Image
 from config import *
@@ -39,6 +40,13 @@ class SimState:
         self.completion_time_ms = None
         self.elapsed_time_ms = 0.0
         self.recalc_index = 0
+=======
+from PIL import Image
+from config import *
+from maps import get_grid_positions
+from algorithms import Agent, GlobalPlanner, SmartExit
+from discretisatioin import Discretisation
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
 # --- UI CLASSES ---
 class Button:
@@ -88,10 +96,15 @@ class Dropdown:
         pygame.draw.rect(surface, BLUE, self.rect, border_radius=5)
         pygame.draw.rect(surface, (100, 150, 255), self.rect, 2, border_radius=5)
         
+<<<<<<< HEAD
+=======
+        arrow = "▼" if not self.is_open else "▲"
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
         text = self.options[self.selected_index]
         # Truncate text if too long
         if len(text) > 18: text = text[:15] + "..."
         
+<<<<<<< HEAD
         txt_surf = font.render(text, True, TEXT_WHITE)
         txt_rect = txt_surf.get_rect(center=self.rect.center)
         surface.blit(txt_surf, txt_rect)
@@ -103,6 +116,11 @@ class Dropdown:
             pygame.draw.polygon(surface, TEXT_WHITE, [(cx - 4, cy + 2), (cx + 4, cy + 2), (cx, cy - 3)])
         else:
             pygame.draw.polygon(surface, TEXT_WHITE, [(cx - 4, cy - 2), (cx + 4, cy - 2), (cx, cy + 3)])
+=======
+        txt_surf = font.render(f"{text} {arrow}", True, TEXT_WHITE)
+        txt_rect = txt_surf.get_rect(center=self.rect.center)
+        surface.blit(txt_surf, txt_rect)
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
         # Draw Options
         if self.is_open:
@@ -146,7 +164,11 @@ def ensure_dir(directory):
 def save_map(obstacles, filename="mars_map.json"):
     ensure_dir("maps")
     filepath = os.path.join("maps", filename)
+<<<<<<< HEAD
     data = [obs.to_dict() for obs in obstacles]
+=======
+    data = [[r.x, r.y, r.width, r.height] for r in obstacles]
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
     try:
         with open(filepath, 'w') as f: json.dump(data, f)
         print(f"✅ Map saved to {filepath}")
@@ -159,6 +181,7 @@ def load_map(filename="mars_map.json"):
         return []
     try:
         with open(filepath, 'r') as f: data = json.load(f)
+<<<<<<< HEAD
         # Backwards compatibility for old rect maps
         loaded = []
         for item in data:
@@ -167,6 +190,9 @@ def load_map(filename="mars_map.json"):
             else:
                 loaded.append(Obstacle.from_dict(item))
         return [o for o in loaded if o is not None]
+=======
+        return [pygame.Rect(item[0], item[1], item[2], item[3]) for item in data]
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
     except Exception as e:
         print(f"❌ Error loading map: {e}")
         return []
@@ -190,7 +216,11 @@ def save_gif(frames, filename="mars_sim.gif"):
         print(f"✅ GIF Saved!")
     except Exception as e: print(f"❌ Error saving GIF: {e}")
 
+<<<<<<< HEAD
 def draw_electric_field(surface, agents, obstacles, end_rect, map_offset_x):
+=======
+def draw_electric_field(surface, agents, obstacles, end_rect):
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
     step = 40 
     zero_zone = end_rect.inflate(300, 300)
     field_surf = pygame.Surface((MAP_WIDTH, MAP_HEIGHT), pygame.SRCALPHA)
@@ -220,6 +250,7 @@ def draw_electric_field(surface, agents, obstacles, end_rect, map_offset_x):
                 color = (intensity, 100, 255 - intensity, 150)
                 pygame.draw.line(field_surf, color, pos, end_pos, 1)
                 pygame.draw.circle(field_surf, color, (int(pos.x), int(pos.y)), 1)
+<<<<<<< HEAD
     surface.blit(field_surf, (map_offset_x, 0))
 
 def draw_exit_grid(surface, exit_manager, map_offset_x):
@@ -229,6 +260,22 @@ def draw_exit_grid(surface, exit_manager, map_offset_x):
     draw_pos = (int(center_pos.x + map_offset_x), int(center_pos.y))
     pygame.draw.circle(surface, (255, 180, 50), draw_pos, 4)
     pygame.draw.circle(surface, (255, 255, 255), draw_pos, 2)
+=======
+    surface.blit(field_surf, (PANEL_WIDTH, 0))
+
+def draw_exit_grid(surface, exit_manager):
+    if not exit_manager: return
+    for r in range(exit_manager.rows):
+        for c in range(exit_manager.cols):
+            pos = exit_manager.get_pixel_center(r, c)
+            draw_pos = (int(pos.x + PANEL_WIDTH), int(pos.y))
+            
+            is_available = (r, c) in exit_manager.parking_queue
+            if is_available:
+                pygame.draw.circle(surface, (120, 120, 120), draw_pos, 2)
+            else:
+                pygame.draw.circle(surface, (255, 50, 50), draw_pos, 4)
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
 def main():
     pygame.init()
@@ -236,6 +283,7 @@ def main():
     pygame.display.set_caption("MARS: Sim Control")
     clock = pygame.time.Clock()
     
+<<<<<<< HEAD
     # MacOS Retina displays can blow up unadjusted System fonts.
     # We use smaller absolute values for the font heights.
     font_ui = pygame.font.SysFont("Helvetica", 11)
@@ -294,6 +342,57 @@ def main():
     ]
     
     buttons[2].active = True # 1x default
+=======
+    font_ui = pygame.font.SysFont("Segoe UI", 16)
+    font_bold = pygame.font.SysFont("Segoe UI", 16, bold=True)
+    font_timer = pygame.font.SysFont("Consolas", 32, bold=True)
+    font_header = pygame.font.SysFont("Segoe UI", 20, bold=True) # Slightly smaller header
+    font_label = pygame.font.SysFont("Arial", 14, bold=True)
+    error_font = pygame.font.SysFont("Arial", 30, bold=True)
+
+    bx = 20; bw = 160; by = 260
+    
+    # --- UI LAYOUT ---
+    # Group 1: Time Controls (Tighter spacing)
+    buttons = [
+        Button(bx, by, 75, 35, "Restart", "RESTART", color=RED),
+        Button(bx+85, by, 75, 35, "Pause", "PAUSE_RESUME", color=ORANGE),
+        
+        # Speed Controls immediately below
+        Button(bx, by+45, 35, 30, "1x", "SPD_1"),
+        Button(bx+40, by+45, 35, 30, "2x", "SPD_2"),
+        Button(bx+80, by+45, 35, 30, "3x", "SPD_3"),
+        Button(bx+120, by+45, 35, 30, "4x", "SPD_4"),
+    ]
+    
+    # Group 2: Algorithms (Dropdown handled separately)
+    # y = by + 130
+    
+    # Group 3: File Ops (Push down)
+    file_y = by + 220
+    buttons += [
+        Button(bx, file_y, 75, 30, "Save Map", "SAVE_MAP", color=BLUE),
+        Button(bx+85, file_y, 75, 30, "Load Map", "LOAD_MAP", color=BLUE),
+        Button(bx, file_y+40, bw, 30, "Clear Walls", "CLEAR_WALLS", color=ORANGE),
+    ]
+    
+    # Group 4: Recording (Bottom)
+    rec_y = file_y + 100
+    buttons += [
+        Button(bx, rec_y, 75, 35, "REC", "TOGGLE_REC", color=(200, 50, 50), toggle=True),
+        Button(bx+85, rec_y, 75, 35, "Export", "SAVE_GIF", color=GREEN)
+    ]
+    
+    buttons[2].active = True # 1x default
+    
+    # Dropdown for Algorithm Selection (Positioned in the middle gap)
+    algo_options = ["Electric Field", "Standard Path", "Discrete Grid"]
+    algo_dropdown = Dropdown(bx, by + 130, bw, 35, algo_options, default_index=0)
+    
+    # Grid Toggle
+    btn_show_grid = Button(bx, by + 175, bw, 30, "Show Grid", "TOGGLE_GRID", toggle=True)
+    buttons.append(btn_show_grid)
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
     # --- STATE ---
     state = "DRAWING"
@@ -302,6 +401,10 @@ def main():
     recorded_frames = []
     
     start_time = 0
+<<<<<<< HEAD
+=======
+    final_time = 0
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
     paused_time_accumulator = 0
     last_pause_start = 0
     
@@ -311,6 +414,7 @@ def main():
 
     custom_obstacles = []
     current_drawing_rect = None
+<<<<<<< HEAD
     current_drawing_circ = None  # (cx, cy, current_r)
     current_drawing_freehand = [] # [(x, y), ...]
     active_tool = "TOOL_RECT"
@@ -330,6 +434,19 @@ def main():
         dt = current_time - last_tick_time
         last_tick_time = current_time
         
+=======
+    agents = []
+    planner = None
+    exit_manager = None
+    
+    start_center = (100, 100)
+    end_center = (700, 600)
+    spawn_positions, start_rect = get_grid_positions(start_center, NUM_AGENTS)
+    parking_positions, end_rect = get_grid_positions(end_center, NUM_AGENTS)
+
+    running = True
+    while running:
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
         mouse_pos = pygame.mouse.get_pos()
         map_mouse_pos = (mouse_pos[0] - PANEL_WIDTH, mouse_pos[1])
         
@@ -337,6 +454,7 @@ def main():
             if event.type == pygame.QUIT: running = False
             
             # 1. Dropdown (High Priority)
+<<<<<<< HEAD
             dropdown_consumed = False
             for sim, dropdown in [(sim_left, algo_dropdown_left), (sim_right, algo_dropdown_right)]:
                 prev_algo = dropdown.selected_index
@@ -355,14 +473,37 @@ def main():
 
             # 2. Buttons
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not dropdown_consumed:
+=======
+            prev_algo = algo_dropdown.selected_index
+            if algo_dropdown.handle_event(event):
+                if algo_dropdown.selected_index != prev_algo and state in ["RUNNING", "PAUSED"]:
+                    if algo_dropdown.selected_index == 2:
+                        planner = Discretisation(custom_obstacles)
+                    else:
+                        planner = GlobalPlanner(custom_obstacles)
+                    
+                    if agents:
+                        for agent in agents:
+                            agent.planner = planner
+                            agent.recalc_path()
+                continue
+
+            # 2. Buttons
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
                 if mouse_pos[0] < PANEL_WIDTH:
                     for btn in buttons:
                         action = btn.check_click(mouse_pos)
                         if action:
                             if action == "RESTART":
+<<<<<<< HEAD
                                 state = "DRAWING"; is_recording = False; recorded_frames = []
                                 timer_running = False; frame_counter = 0
                                 sim_left.reset(); sim_right.reset()
+=======
+                                state = "DRAWING"; agents = []; is_recording = False; recorded_frames = []
+                                timer_running = False; final_time = 0; frame_counter = 0
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
                                 buttons[1].text = "Pause"; buttons[1].base_color = ORANGE
                                 
                             elif action == "PAUSE_RESUME":
@@ -385,6 +526,7 @@ def main():
                                 loaded = load_map()
                                 if loaded: 
                                     custom_obstacles = loaded
+<<<<<<< HEAD
                                     if state in ["RUNNING", "PAUSED"]:
                                         for sim in (sim_left, sim_right):
                                             if sim.planner:
@@ -411,6 +553,19 @@ def main():
                         current_drawing_circ = [map_mouse_pos[0], map_mouse_pos[1], 0]
                     elif active_tool == "TOOL_DRAW":
                         current_drawing_freehand = [map_mouse_pos]
+=======
+                                    if state in ["RUNNING", "PAUSED"] and planner:
+                                        planner.update_obstacles(custom_obstacles)
+                                        for agent in agents: agent.recalc_path()
+                            elif action == "CLEAR_WALLS":
+                                custom_obstacles = []
+                                if state in ["RUNNING", "PAUSED"] and planner:
+                                    planner.update_obstacles([])
+                                    for agent in agents: agent.recalc_path()
+                
+                elif map_mouse_pos[0] >= 0:
+                    current_drawing_rect = [map_mouse_pos[0], map_mouse_pos[1], 0, 0]
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 if map_mouse_pos[0] >= 0:
@@ -419,17 +574,24 @@ def main():
                         if obs.collidepoint(map_mouse_pos): to_remove = obs; break
                     if to_remove: 
                         custom_obstacles.remove(to_remove)
+<<<<<<< HEAD
                         if state in ["RUNNING", "PAUSED"]:
                             for sim in (sim_left, sim_right):
                                 if sim.planner:
                                     sim.planner.update_obstacles(custom_obstacles)
                                     for agent in sim.agents: agent.recalc_path()
+=======
+                        if state in ["RUNNING", "PAUSED"] and planner:
+                            planner.update_obstacles(custom_obstacles)
+                            for agent in agents: agent.recalc_path()
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
             if event.type == pygame.MOUSEMOTION:
                 for btn in buttons: btn.check_hover(mouse_pos)
                 if current_drawing_rect:
                     current_drawing_rect[2] = map_mouse_pos[0] - current_drawing_rect[0]
                     current_drawing_rect[3] = map_mouse_pos[1] - current_drawing_rect[1]
+<<<<<<< HEAD
                 if current_drawing_circ:
                     r = math.hypot(map_mouse_pos[0] - current_drawing_circ[0], map_mouse_pos[1] - current_drawing_circ[1])
                     current_drawing_circ[2] = r
@@ -459,10 +621,16 @@ def main():
                     return True
                 
                 new_obs = None
+=======
+
+            if event.type == pygame.MOUSEBUTTONUP:
+                input_blocked = False
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
                 if current_drawing_rect:
                     r = pygame.Rect(current_drawing_rect)
                     r.normalize()
                     if r.width > 5 and r.height > 5:
+<<<<<<< HEAD
                         new_obs = RectObstacle(r.x, r.y, r.width, r.height)
                 elif current_drawing_circ:
                     if current_drawing_circ[2] > 5:
@@ -514,10 +682,39 @@ def main():
                             if agent.path:
                                 predecessor_paths.append(list(agent.path))
                                 
+=======
+                        valid_placement = True
+                        if agents:
+                            for agent in agents:
+                                a_rect = pygame.Rect(agent.pos.x - AGENT_RADIUS, agent.pos.y - AGENT_RADIUS, AGENT_DIAMETER, AGENT_DIAMETER)
+                                if r.colliderect(a_rect): valid_placement = False; input_blocked = True; break
+                        if valid_placement:
+                            if r.colliderect(start_rect) or r.colliderect(end_rect):
+                                valid_placement = False; input_blocked = True
+                        if valid_placement:
+                            custom_obstacles.append(r)
+                            if state in ["RUNNING", "PAUSED"] and planner:
+                                planner.update_obstacles(custom_obstacles)
+                                for agent in agents: agent.recalc_path()
+                    current_drawing_rect = None
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN and state == "DRAWING":
+                    print("Initializing...")
+                    if algo_dropdown.selected_index == 2:
+                        planner = Discretisation(custom_obstacles)
+                    else:
+                        planner = GlobalPlanner(custom_obstacles)
+                    exit_manager = SmartExit(end_rect)
+                    agents = []
+                    for i in range(NUM_AGENTS):
+                        agents.append(Agent(spawn_positions[i], exit_manager, planner))
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
                     state = "RUNNING"
                     start_time = pygame.time.get_ticks()
                     paused_time_accumulator = 0
                     timer_running = True
+<<<<<<< HEAD
                     last_tick_time = start_time
                     dt = 0
                     for sim in (sim_left, sim_right):
@@ -528,6 +725,12 @@ def main():
                 if event.key == pygame.K_r: 
                     state = "DRAWING"; timer_running = False
                     sim_left.reset(); sim_right.reset()
+=======
+                    buttons[1].text = "Pause"; buttons[1].base_color = ORANGE
+                
+                if event.key == pygame.K_r: 
+                    state = "DRAWING"; agents = []; timer_running = False
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
                     buttons[1].text = "Pause"; buttons[1].base_color = ORANGE
                 
                 if event.key == pygame.K_p: 
@@ -540,6 +743,7 @@ def main():
                         timer_running = True
 
         if state == "RUNNING":
+<<<<<<< HEAD
             for sim in (sim_left, sim_right):
                 if not sim.all_parked:
                     sim.elapsed_time_ms += dt * sim_speed
@@ -583,6 +787,32 @@ def main():
             )
             if all_entered_both:
                 timer_running = False
+=======
+            if exit_manager: exit_manager.register_agents(agents)
+            use_electric = (algo_dropdown.selected_index == 0)
+            if isinstance(planner, Discretisation): planner.set_agents(agents)
+
+            for _ in range(sim_speed):
+                if not use_electric:
+                    for agent in agents: agent.local_safety_check(agents)
+                
+                all_parked = True
+                path_error = False
+                for agent in agents:
+                    if use_electric: 
+                        agent.update_electric(agents, custom_obstacles, end_rect)
+                    else: 
+                        agent.update(end_rect)
+                    
+                    if agent.active: all_parked = False
+                    if not agent.path_valid: path_error = True
+                
+                if not use_electric:
+                    for _ in range(4):
+                        for agent in agents: agent.resolve_collision(agents, custom_obstacles)
+
+                if all_parked: timer_running = False
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
         # --- DRAWING ---
         screen.fill(OFF_WHITE)
@@ -590,6 +820,7 @@ def main():
         pygame.draw.line(screen, (60,60,60), (PANEL_WIDTH, 0), (PANEL_WIDTH, SCREEN_HEIGHT), 2)
         
         # --- SIDEBAR CONTENT ---
+<<<<<<< HEAD
         status_txt = state
         if not timer_running and state == "RUNNING": status_txt = "FINISHED"
         screen.blit(font_bold.render(f"STATUS: {status_txt}", True, TEXT_GRAY), (bx, 30))
@@ -604,10 +835,40 @@ def main():
             screen.blit(font_header.render("LIVE EDITING", True, TEXT_WHITE), (bx, info_y))
             screen.blit(font_ui.render("Draw/Erase walls to", True, TEXT_GRAY), (bx, info_y + 20))
             screen.blit(font_ui.render("force re-routing!", True, TEXT_GRAY), (bx, info_y + 35))
+=======
+        # 1. Title Area
+        if state == "RUNNING":
+            if timer_running:
+                elapsed = pygame.time.get_ticks() - start_time - paused_time_accumulator
+                final_time = elapsed
+            elif state == "PAUSED":
+                pass
+        elif state == "DRAWING":
+            final_time = 0
+            
+        time_str = f"{final_time/1000:.2f}s"
+        timer_surf = font_timer.render(time_str, True, GREEN if not timer_running and state=="RUNNING" else TEXT_WHITE)
+        screen.blit(timer_surf, (20, 30))
+        
+        status_txt = state
+        if not timer_running and state == "RUNNING": status_txt = "FINISHED"
+        screen.blit(font_bold.render(f"STATUS: {status_txt}", True, TEXT_GRAY), (20, 70))
+        
+        if state == "DRAWING":
+            screen.blit(font_header.render("INSTRUCTIONS", True, TEXT_WHITE), (20, 120))
+            screen.blit(font_ui.render("L-Click: Draw Wall", True, TEXT_GRAY), (20, 155))
+            screen.blit(font_ui.render("R-Click: Erase Wall", True, TEXT_GRAY), (20, 180))
+            screen.blit(font_ui.render("ENTER: Start Sim", True, GREEN), (20, 215))
+        else:
+            screen.blit(font_header.render("LIVE EDITING", True, TEXT_WHITE), (20, 120))
+            screen.blit(font_ui.render("Draw/Erase walls to", True, TEXT_GRAY), (20, 155))
+            screen.blit(font_ui.render("force re-routing!", True, TEXT_GRAY), (20, 180))
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
 
         # 2. Controls
         for btn in buttons: btn.draw(screen, font_ui)
         
+<<<<<<< HEAD
         # 3. Algorithm Labels (Dropdowns drawn later)
         screen.blit(font_label.render("LEFT MAP", True, TEXT_WHITE), (bx, algo_left_y - 15))
         screen.blit(font_label.render("RIGHT MAP", True, TEXT_WHITE), (bx, algo_right_y - 15))
@@ -722,6 +983,82 @@ def main():
         algo_dropdown_right.draw(screen, font_ui)
         algo_dropdown_left.draw(screen, font_ui)
 
+=======
+        # 3. Algorithm Label & Dropdown
+        screen.blit(font_header.render("Algorithm", True, TEXT_WHITE), (20, 355)) # Above dropdown
+        algo_dropdown.draw(screen, font_ui)
+
+        # --- MAP AREA ---
+        map_clip = pygame.Rect(PANEL_WIDTH, 0, MAP_WIDTH, MAP_HEIGHT)
+        screen.set_clip(map_clip)
+        
+        s_rect = start_rect.move(PANEL_WIDTH, 0)
+        e_rect = end_rect.move(PANEL_WIDTH, 0)
+        pygame.draw.rect(screen, GREEN, s_rect, 2)
+        pygame.draw.rect(screen, GREEN, e_rect, 2)
+        
+        lbl_s = font_label.render("START", True, GREEN)
+        lbl_e = font_label.render("END", True, GREEN)
+        screen.blit(lbl_s, (s_rect.x, s_rect.y - 18))
+        screen.blit(lbl_e, (e_rect.x, e_rect.y - 18))
+
+        if state in ["RUNNING", "PAUSED"] and exit_manager:
+            draw_exit_grid(screen, exit_manager)
+
+        for obs in custom_obstacles:
+            r = obs.move(PANEL_WIDTH, 0)
+            pygame.draw.rect(screen, BLUE, r)
+            
+        # Draw Discretisation Grid
+        if btn_show_grid.active:
+            viz_planner = planner
+            # If in DRAWING mode or using another planner, but "Discrete Grid" is selected in dropdown, visualize it anyway
+            if (viz_planner is None or not isinstance(viz_planner, Discretisation)) and algo_dropdown.selected_index == 2:
+                viz_planner = Discretisation(custom_obstacles)
+
+            if isinstance(viz_planner, Discretisation):
+                grid_cells = viz_planner.build_occupancy_grid(AGENT_RADIUS)
+                grid_surf = pygame.Surface((MAP_WIDTH, MAP_HEIGHT), pygame.SRCALPHA)
+                for (x, y, w, h, is_free) in grid_cells:
+                    r = pygame.Rect(x, y, w, h)
+                    if is_free:
+                        pygame.draw.rect(grid_surf, (0, 255, 0, 50), r, 1)
+                    else:
+                        pygame.draw.rect(grid_surf, (255, 0, 0, 100), r)
+                        pygame.draw.rect(grid_surf, (255, 0, 0), r, 1)
+                screen.blit(grid_surf, (PANEL_WIDTH, 0))
+        
+        if current_drawing_rect:
+            preview = [current_drawing_rect[0] + PANEL_WIDTH, current_drawing_rect[1], current_drawing_rect[2], current_drawing_rect[3]]
+            temp_rect = pygame.Rect(preview)
+            temp_rect.normalize()
+            color = RED if input_blocked else (100, 100, 255)
+            pygame.draw.rect(screen, color, temp_rect, 2)
+
+        if state in ["RUNNING", "PAUSED"]:
+            if use_electric: # Visuals for electric mode
+                draw_electric_field(screen, agents, custom_obstacles, end_rect)
+            
+            for agent in agents:
+                draw_pos = (int(agent.pos.x + PANEL_WIDTH), int(agent.pos.y))
+                if len(agent.path) > 1 and agent.active:
+                    future_waypoints = agent.path[agent.current_wp_index:]
+                    offset_start = (agent.pos.x + PANEL_WIDTH, agent.pos.y)
+                    display_points = [offset_start] + [(p[0] + PANEL_WIDTH, p[1]) for p in future_waypoints]
+                    if len(display_points) > 1:
+                        pygame.draw.lines(screen, YELLOW, False, display_points, 1)
+                pygame.draw.circle(screen, agent.get_color(), draw_pos, AGENT_RADIUS)
+                pygame.draw.circle(screen, BLACK, draw_pos, AGENT_RADIUS, 1)
+            
+            if path_error:
+                box_rect = pygame.Rect(PANEL_WIDTH + MAP_WIDTH//2 - 200, MAP_HEIGHT//2 - 50, 400, 100)
+                pygame.draw.rect(screen, (50, 50, 50), box_rect)
+                pygame.draw.rect(screen, RED, box_rect, 3)
+                txt1 = error_font.render("NO PATH FOUND!", True, RED)
+                screen.blit(txt1, (box_rect.centerx - txt1.get_width()//2, box_rect.centery - 15))
+
+        screen.set_clip(None)
+>>>>>>> 7b5c7426cde0eb81506fd86b93623ca372e1542c
         if is_recording and state == "RUNNING":
             pygame.draw.circle(screen, RED, (SCREEN_WIDTH - 30, 30), 8)
             if frame_counter % 2 == 0: recorded_frames.append(screen.copy())

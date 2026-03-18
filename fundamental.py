@@ -205,32 +205,23 @@ def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
             nx, ny = nodes[next_idx]
             cx, cy = nodes[idx]
             
-            # Skip crossing penalty if this edge is near the goal (convergence zone)
-            mid_x, mid_y = (cx + nx) / 2, (cy + ny) / 2
-            near_goal = ((mid_x - gx)**2 + (mid_y - gy)**2) < convergence_r_sq
+            # Skip crossing penalty near the goal convergence zone
+            if (nx - gx)**2 + (ny - gy)**2 < convergence_r_sq:
+                noise = random.uniform(0, 5.0)
+                neighbors.append((next_idx, weight + noise))
+                continue
             
-            penalty = 0
-            if not near_goal and per_path_segs:
-                # 1) CROSSING PENALTY: count distinct predecessor paths this edge crosses
-                paths_crossed = 0
-                for path_segs in per_path_segs:
-                    crossed_this_path = False
-                    for seg in path_segs:
-                        if _segments_cross((cx, cy), (nx, ny), seg[0], seg[1]):
-                            crossed_this_path = True
-                            break
-                    if crossed_this_path:
-                        paths_crossed += 1
-                
-                penalty += paths_crossed * CROSSING_PENALTY
+            crossings = 0
+            for path_segs in per_path_segs:
+                path_crossed = False
+                for seg in path_segs:
+                    if _segments_cross((cx, cy), (nx, ny), seg[0], seg[1]):
+                        path_crossed = True
+                        break
+                if path_crossed:
+                    crossings += 1
             
-            # 2) PROXIMITY PENALTY: penalize edges near predecessor paths (anti-queueing)
-            for seg in path_segments:
-                d1 = _point_to_segment_dist(nx, ny, seg[0][0], seg[0][1], seg[1][0], seg[1][1])
-                d2 = _point_to_segment_dist(mid_x, mid_y, seg[0][0], seg[0][1], seg[1][0], seg[1][1])
-                if min(d1, d2) < proximity_r:
-                    penalty += AGENT_DIAMETER * 4.0 * PRIORITY_PENALTY_MULTIPLIER
-            
+            penalty = crossings * CROSSING_PENALTY * PRIORITY_PENALTY_MULTIPLIER
             noise = random.uniform(0, 5.0)
             neighbors.append((next_idx, weight + penalty + noise))
         return neighbors
@@ -245,108 +236,14 @@ def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
 
 
 # ---------------------------------------------------------------------------
-# A* for Discrete Adaptive-Grid planner
+# Agent base class
 # ---------------------------------------------------------------------------
-def astar_discrete(start_idx, goal_idx, grid_cells, end_center,
-                   agent_positions, robot_radius, predecessor_paths=None):
-    """
-    A* over an adaptive quadtree grid with dynamic agent penalties,
-    symmetry-breaking noise, and predecessor path deprioritization.
-
-    Parameters:
-        start_idx / goal_idx : cell indices into `grid_cells`
-        grid_cells           : [(x0, y0, w, h, is_free), ...]
-        end_center           : (x, y) goal center for heuristic
-        agent_positions      : [(x, y), ...] of other active agents
-        robot_radius         : agent radius for penalty zones
-        predecessor_paths    : list of coordinate-path lists from earlier agents
-
-    Returns:
-        List of cell indices (start → goal) or None.
-    """
-    path_segments = _build_path_segments(predecessor_paths)
-    inner_r_sq = (robot_radius * 2.5) ** 2
-    outer_r_sq = (robot_radius * 6.0) ** 2
-    radius_6 = robot_radius * 6.0
-
-    def get_neighbors(current_idx):
-        current_cell = grid_cells[current_idx]
-        cx = current_cell[0] + current_cell[2] / 2
-        cy = current_cell[1] + current_cell[3] / 2
-        cw, ch = current_cell[2], current_cell[3]
-        neighbors = []
-
-        for i, cell in enumerate(grid_cells):
-            if i == current_idx or not cell[4]:
-                continue
-
-            nx = cell[0] + cell[2] / 2
-            ny = cell[1] + cell[3] / 2
-            nw, nh = cell[2], cell[3]
-
-            # Quick bounding-box adjacency reject
-            if abs(nx - cx) > (cw + nw) / 2 + 0.1:
-                continue
-            if abs(ny - cy) > (ch + nh) / 2 + 0.1:
-                continue
-
-            # Geometric adjacency check
-            dx_val = abs(nx - cx)
-            dy_val = abs(ny - cy)
-            sum_w = (cw + nw) / 2
-            sum_h = (ch + nh) / 2
-            EPS = 0.1
-
-            touch_x = (abs(dx_val - sum_w) < EPS) and (dy_val < sum_h - EPS)
-            touch_y = (abs(dy_val - sum_h) < EPS) and (dx_val < sum_w - EPS)
-            touch_diag = (abs(dx_val - sum_w) < EPS) and (abs(dy_val - sum_h) < EPS)
-
-            if not (touch_x or touch_y or touch_diag):
-                continue
-
-            edge_dist = math.hypot(nx - cx, ny - cy)
-
-            # --- Dynamic agent penalty ---
-            penalty = 0
-            for ax, ay in agent_positions:
-                if abs(nx - ax) > radius_6 or abs(ny - ay) > radius_6:
-                    continue
-                d_sq = (nx - ax) ** 2 + (ny - ay) ** 2
-                if d_sq < inner_r_sq:
-                    penalty += 60
-                elif d_sq < outer_r_sq:
-                    penalty += 10
-
-            # --- Predecessor path penalty ---
-            for seg in path_segments:
-                if _point_to_segment_dist(nx, ny, seg[0][0], seg[0][1], seg[1][0], seg[1][1]) < AGENT_DIAMETER * 1.5:
-                    penalty += AGENT_DIAMETER
-                    break
-
-            # --- Symmetry-breaking noise ---
-            noise = random.uniform(0, 5.0)
-
-            neighbors.append((i, edge_dist + penalty + noise))
-
-        return neighbors
-
-    def heuristic(idx):
-        cell = grid_cells[idx]
-        nx = cell[0] + cell[2] / 2
-        ny = cell[1] + cell[3] / 2
-        return math.hypot(end_center[0] - nx, end_center[1] - ny)
-
-    return _astar_core(start_idx, goal_idx, get_neighbors, heuristic)
-
-
 class Agent:
     def __init__(self, start, exit_manager, planner, predecessor_paths=None):
         self.pos = pygame.Vector2(start)
         self.exit_manager = exit_manager
         self.planner = planner
         self.predecessor_paths = predecessor_paths or []
-        self.target_pos = pygame.Vector2(exit_manager.rect.center)
-        
         self.active = True
         self.waiting = False
         self.spot_reserved = False 
@@ -359,6 +256,9 @@ class Agent:
         self.grid_patience = 0
         self.grid_step_cooldown = 0     # Frames until next discrete step
         
+        # Smooth parking blend: 0.0 = full A*, 1.0 = full funnel
+        self.parking_blend = 0.0
+
         self.path_valid = False
         self.path = []
         self.current_wp_index = 0
@@ -372,10 +272,14 @@ class Agent:
 
     def recalc_path(self):
         if not self.active: return
+        self.target_pos = self.exit_manager.center_pixel
         new_path = self.planner.find_path(self, self.target_pos, self.predecessor_paths)
         if new_path:
             self.path = new_path
-            self.current_wp_index = 0
+            if len(new_path) > 1:
+                self.current_wp_index = 1
+            else:
+                self.current_wp_index = 0
             self.path_valid = True
         else:
             self.path_valid = False 
@@ -411,8 +315,6 @@ class Agent:
             if distance < 0.1: continue 
             
             # Only hard-brake if they are literally about to collide (< 1.2 robot lengths).
-            # The 4x4 spawn grid has 1.5 spacing, so this ensures agents do not mistakenly 
-            # brake for their stationary neighbors at T=0, allowing simultaneous departure!
             if distance < AGENT_DIAMETER * 1.2: 
                 d_norm = d_vec.normalize()
                 angle = heading.dot(d_norm)
@@ -421,45 +323,82 @@ class Agent:
                     if other.velocity.length() > 0.5:
                         move_alignment = heading.dot(other.velocity.normalize())
                         if move_alignment > 0.7:
-                             if distance > AGENT_DIAMETER * 1.05:
-                                 continue
+                            if distance > AGENT_DIAMETER * 1.05:
+                                continue
                     self.waiting = True; return 
 
     def resolve_collision(self, agents, obstacles):
+        if not self.active: return
+
+        # Shape-specific physics for obstacles
+        from algorithms.obstacles import CircleObstacle, FreehandObstacle
+
         for obs in obstacles:
-            closest_x = clamp(self.pos.x, obs.left, obs.right)
-            closest_y = clamp(self.pos.y, obs.top, obs.bottom)
-            diff_x = self.pos.x - closest_x
-            diff_y = self.pos.y - closest_y
-            dist = math.hypot(diff_x, diff_y)
-            if dist < AGENT_RADIUS:
-                if dist == 0: self.pos.x += 1
-                else:
-                    overlap = AGENT_RADIUS - dist
-                    self.pos.x += (diff_x / dist) * overlap
-                    self.pos.y += (diff_y / dist) * overlap
+            if isinstance(obs, CircleObstacle):
+                diff = self.pos - pygame.Vector2(obs.cx, obs.cy)
+                dist = diff.length()
+                min_dist = AGENT_RADIUS + obs.r
+                if dist < min_dist:
+                    if dist == 0: self.pos.x += 1
+                    else:
+                        overlap = min_dist - dist
+                        self.pos += diff.normalize() * overlap
+            elif isinstance(obs, FreehandObstacle):
+                closest_point_on_shape = None
+                min_dist_sq = float('inf')
+                for i in range(len(obs.points) - 1):
+                    p1, p2 = pygame.Vector2(obs.points[i]), pygame.Vector2(obs.points[i+1])
+                    p1_to_agent = self.pos - p1
+                    seg_vec = p2 - p1
+                    seg_len_sq = seg_vec.length_squared()
+                    t = p1_to_agent.dot(seg_vec) / seg_len_sq if seg_len_sq > 0 else 0
+                    t = clamp(t, 0, 1)
+                    closest_on_segment = p1 + t * seg_vec
+                    dist_sq = self.pos.distance_squared_to(closest_on_segment)
+                    if dist_sq < min_dist_sq:
+                        min_dist_sq = dist_sq
+                        closest_point_on_shape = closest_on_segment
+                if closest_point_on_shape and min_dist_sq < (AGENT_RADIUS + obs.thickness / 2)**2:
+                    dist = math.sqrt(min_dist_sq)
+                    overlap = (AGENT_RADIUS + obs.thickness / 2) - dist
+                    push_vec = self.pos - closest_point_on_shape
+                    if push_vec.length() > 0: self.pos += push_vec.normalize() * overlap
+                    else: self.pos.x += overlap
+            else:
+                closest_point = pygame.Vector2(clamp(self.pos.x, obs.left, obs.right), clamp(self.pos.y, obs.top, obs.bottom))
+                diff = self.pos - closest_point
+                dist = diff.length()
+                if dist < AGENT_RADIUS:
+                    if dist == 0: self.pos.x += 1
+                    else:
+                        overlap = AGENT_RADIUS - dist
+                        self.pos += diff.normalize() * overlap
         
         if self.pos.x < AGENT_RADIUS: self.pos.x = AGENT_RADIUS
         if self.pos.x > MAP_WIDTH - AGENT_RADIUS: self.pos.x = MAP_WIDTH - AGENT_RADIUS
         if self.pos.y < AGENT_RADIUS: self.pos.y = AGENT_RADIUS
         if self.pos.y > MAP_HEIGHT - AGENT_RADIUS: self.pos.y = MAP_HEIGHT - AGENT_RADIUS
 
-        # Agent-Agent (CONTINUOUS PARKING PHYSICS ENABLED)
+        # Agent-Agent
         for other in agents:
             if other is self: continue
             
-            # Dampen forces if both are parked/parking to prevent violent bouncing, allowing dense packing
             if self.spot_reserved and other.spot_reserved:
-                min_dist = AGENT_DIAMETER * 0.95 # Allow slight visible squishing in the crowd
-                push_factor = 0.3 # Gentle nudging
-            else:
-                if self.spot_reserved: return # Do not let marching traffic push safely parked agents
-                min_dist = AGENT_DIAMETER + 1 
-                push_factor = 0.5 # Regular strong avoidance
+                 self.exit_manager.resolve_collision(self, other)
+                 continue
+
+            if self.spot_reserved and not other.active:
+                if self.pos.distance_to(other.pos) < AGENT_DIAMETER:
+                    self.velocity.update(0, 0)
+                    self.active = False
+                    self.exit_manager.park_agent(self)
+                    return
+
+            min_dist = AGENT_DIAMETER + 1 
+            push_factor = 0.5
             
             diff = self.pos - other.pos
             dist = diff.length()
-            min_dist = AGENT_DIAMETER + 1 
             if dist < min_dist:
                 if dist == 0: correction = pygame.Vector2(1, 0)
                 else:
@@ -467,24 +406,12 @@ class Agent:
                     correction = diff.normalize() * (overlap * push_factor)
                 self.pos += correction
 
-
-
     def _check_parking_logic(self, end_rect):
-        """When agent enters the 20px threshold around end_rect, start continuous parking."""
-        if not self.spot_reserved:
-            # 20px radius = 40px inflation (20 on each side)
-            threshold_rect = end_rect.inflate(40, 40)
-            if threshold_rect.collidepoint(self.pos.x, self.pos.y):
-                self.spot_reserved = True
-                self.path = []  # Stop following A* path
-                self.fluid_target_cell = None
-                self.current_grid_cell = None
-
+        self.exit_manager.check_entry(self)
 
     def update(self, end_rect):
         if not self.active: return
         
-        # RECOVERY: If path is invalid (stuck), try to find one again periodically
         if not self.path_valid:
             self.patience += 1
             if self.patience > self.patience_threshold:
@@ -493,66 +420,58 @@ class Agent:
                 self.patience_threshold = random.randint(30, 60)
             return
 
-        self._check_parking_logic(end_rect)
-        
+        # Always compute the A* waypoint velocity (even while blending into parking)
+        astar_velocity = pygame.Vector2(0, 0)
+        if self.current_wp_index < len(self.path):
+            target = pygame.Vector2(self.path[self.current_wp_index])
+            direction = target - self.pos
+            if direction.length() < AGENT_RADIUS:
+                self.pos = target
+                self.current_wp_index += 1
+            else:
+                astar_velocity = direction.normalize() * AGENT_SPEED
+
+        # Always compute the funnel pull velocity (even before fully in parking)
+        funnel_velocity = pygame.Vector2(0, 0)
         if self.spot_reserved:
-            # Physics-based continuous parking towards the absolute center of the box
-            target = self.exit_manager.center_pixel
-            diff = target - self.pos
-            dist = diff.length()
-            
-            # If we are basically mathematically dead-center, stop forever
-            if dist < 2.0:
-                self.pos = pygame.Vector2(target)
-                self.velocity = pygame.Vector2(0, 0)
-                self.active = False
-                self.exit_manager.park_agent(self)
-                return
-            
-            # Drive straight towards the center point
-            self.velocity = diff.normalize() * AGENT_SPEED
+            funnel_target = self.exit_manager.center_pixel
+            diff = funnel_target - self.pos
+            dist_to_funnel = diff.length()
+            if dist_to_funnel > 2.0:
+                pull_strength = AGENT_SPEED * 0.8
+                funnel_velocity = diff.normalize() * pull_strength
+
+        blend = self.parking_blend  # 0.0 = pure A*, 1.0 = pure funnel
+
+        if blend >= 1.0:
+            # Fully in parking funnel — hand off entirely to exit_manager
+            self.exit_manager.update_agent(self)
+        elif blend > 0.0:
+            # Blending: lerp between A* velocity and funnel pull
+            blended_vel = astar_velocity * (1.0 - blend) + funnel_velocity * blend
+            if blended_vel.length() > AGENT_SPEED:
+                blended_vel.scale_to_length(AGENT_SPEED)
+            self.velocity = blended_vel
             self.pos += self.velocity
-            
-            # Have we stopped moving physically? (Because of physics crowding)
-            # We measure this by checking if our actual position barely changed 
-            # despite our velocity engine running.
-            moved_dist = (self.pos - getattr(self, 'prev_parking_pos', pygame.Vector2(0,0))).length()
-            self.prev_parking_pos = pygame.Vector2(self.pos)
-            
-            if moved_dist < 0.1:
-                self.grid_patience += 1
-                if self.grid_patience > 30:  # 0.5s of being blocked by the crowd = close enough!
-                    self.velocity = pygame.Vector2(0, 0)
-                    self.active = False
-                    self.exit_manager.park_agent(self)
-            else:
-                self.grid_patience = 0
-                
         else:
-            # Calculate actual physical movement to detect if stuck
-            moved_dist = (self.pos - self.prev_pos).length()
-            self.prev_pos = pygame.Vector2(self.pos)
-
-            # Check patience: Only if NOT in push mode AND physically stuck
-            if self.push_state == 0 and self.path_valid and moved_dist < 0.5:
-                self.patience += 1
-                if self.patience > self.patience_threshold: # Re-plan after random interval
-                    self.recalc_path()
-                    self.patience = 0
-                    self.patience_threshold = random.randint(30, 60)
-                    self.push_state = 45 # Force movement for ~0.75s to break deadlock
-            else:
-                self.patience = 0
-
-            if self.current_wp_index < len(self.path):
-                target = pygame.Vector2(self.path[self.current_wp_index])
-                direction = target - self.pos
-                if direction.length() < AGENT_RADIUS:
-                    self.pos = target 
-                    self.current_wp_index += 1
+            # Pure A* path following
+            if not self.waiting:
+                moved_dist = (self.pos - self.prev_pos).length()
+                self.prev_pos = pygame.Vector2(self.pos)
+                if self.push_state == 0 and self.path_valid and moved_dist < 0.5:
+                    self.patience += 1
+                    if self.patience > self.patience_threshold:
+                        self.recalc_path()
+                        self.patience = 0
+                        self.patience_threshold = random.randint(30, 60)
+                        self.push_state = 45
                 else:
-                    self.velocity = direction.normalize() * AGENT_SPEED
-                    self.pos += self.velocity
+                    self.patience = 0
+            self.velocity = astar_velocity
+            self.pos += self.velocity
+
+        # Always tick the entry check so parking_blend ramps up each frame
+        self._check_parking_logic(end_rect)
 
     def get_color(self):
         if not self.path_valid: return (100, 100, 100)

@@ -149,13 +149,13 @@ def save_map(obstacles, filename="mars_map.json"):
     data = [obs.to_dict() for obs in obstacles]
     try:
         with open(filepath, 'w') as f: json.dump(data, f)
-        print(f"✅ Map saved to {filepath}")
-    except Exception as e: print(f"❌ Error saving map: {e}")
+        print(f"[OK] Map saved to {filepath}")
+    except Exception as e: print(f"[ERROR] Error saving map: {e}")
 
 def load_map(filename="mars_map.json"):
     filepath = os.path.join("maps", filename)
     if not os.path.exists(filepath):
-        print(f"⚠️ Map not found: {filepath}")
+        print(f"[WARNING] Map not found: {filepath}")
         return []
     try:
         with open(filepath, 'r') as f: data = json.load(f)
@@ -168,16 +168,16 @@ def load_map(filename="mars_map.json"):
                 loaded.append(Obstacle.from_dict(item))
         return [o for o in loaded if o is not None]
     except Exception as e:
-        print(f"❌ Error loading map: {e}")
+        print(f"[ERROR] Error loading map: {e}")
         return []
 
 def save_gif(frames, filename="mars_sim.gif"):
     if not frames: 
-        print("❌ Save Failed: No frames.")
+        print("[ERROR] Save Failed: No frames.")
         return
     ensure_dir("gifs")
     filepath = os.path.join("gifs", filename)
-    print(f"💾 Saving {len(frames)} frames to {filepath}...")
+    print(f"[SAVE] Saving {len(frames)} frames to {filepath}...")
     pil_images = []
     
     for surface in frames:
@@ -187,8 +187,8 @@ def save_gif(frames, filename="mars_sim.gif"):
 
     try:
         pil_images[0].save(filepath, save_all=True, append_images=pil_images[1:], optimize=True, duration=33, loop=0)
-        print(f"✅ GIF Saved!")
-    except Exception as e: print(f"❌ Error saving GIF: {e}")
+        print(f"[OK] GIF Saved!")
+    except Exception as e: print(f"[ERROR] Error saving GIF: {e}")
 
 def draw_electric_field(surface, agents, obstacles, end_rect, map_offset_x):
     step = 40 
@@ -566,16 +566,18 @@ def main():
                         if agent.active: sim.all_parked = False
                         if not agent.path_valid: sim.path_error = True
                     
-                    if not sim.use_electric:
-                        for _ in range(4):
-                            for agent in sim.agents:
-                                if not agent.dfs_settled:  # Allow agents navigating the grid to push past each other
-                                    agent.resolve_collision(sim.agents, custom_obstacles)
+                    for _ in range(4):
+                        for agent in sim.agents:
+                            if not agent.dfs_settled:  # Allow agents navigating the grid to push past each other
+                                agent.resolve_collision(sim.agents, custom_obstacles)
 
                     # Timer stops when ALL agents have entered the grid
                     all_entered = all(agent.spot_reserved for agent in sim.agents) if sim.agents else False
                     if all_entered and sim.completion_time_ms is None:
                         sim.completion_time_ms = sim.elapsed_time_ms
+                        for agent in sim.agents:
+                            agent.active = False
+                            agent.velocity = pygame.math.Vector2(0, 0)
 
             all_entered_both = (
                 (all(a.spot_reserved for a in sim_left.agents) if sim_left.agents else False) and

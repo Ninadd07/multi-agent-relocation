@@ -1,5 +1,5 @@
 # fundamental.py
-# Shared primitives and A* algorithms used by all planners
+# Shared primitives, A* algorithms, and core controllers used by all planners
 
 import math
 import pygame
@@ -19,9 +19,6 @@ def clamp(val, min_val, max_val):
 # Generic A* core (internal)
 # ---------------------------------------------------------------------------
 def _astar_core(start, goal, get_neighbors, heuristic):
-    """
-    Generic A* search. Returns list of nodes (start → goal) or None.
-    """
     open_set = [(0, 0, start)]
     came_from = {start: None}
     g_score = {start: 0}
@@ -63,10 +60,6 @@ def _point_to_segment_dist(px, py, x1, y1, x2, y2):
     return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
 def _build_path_segments(predecessor_paths):
-    """
-    We store the line segments of the path instead of points
-    so we can evaluate distance to the entire path corridor.
-    """
     segments = []
     if not predecessor_paths:
         return segments
@@ -80,24 +73,8 @@ def _build_path_segments(predecessor_paths):
 # ---------------------------------------------------------------------------
 # A* for Standard Visibility-Graph planner
 # ---------------------------------------------------------------------------
-def astar_standard(start_idx, goal_idx, graph, nodes, goal_pos,
-                   predecessor_paths=None):
-    """
-    A* over a pre-built visibility graph with predecessor path deprioritization.
-
-    Parameters:
-        start_idx / goal_idx : indices into `nodes`
-        graph                : adjacency dict  {idx: [(neighbor_idx, weight), ...]}
-        nodes                : list of (x, y) coordinates
-        goal_pos             : (x, y) goal for heuristic
-        predecessor_paths    : list of coordinate-path lists from earlier agents
-
-    Returns:
-        Coordinate path [(x,y), ...] or None.
-    """
+def astar_standard(start_idx, goal_idx, graph, nodes, goal_pos, predecessor_paths=None):
     path_segments = _build_path_segments(predecessor_paths)
-    # Penalty zone radius: must be SMALLER than WIDE_CORNER_MAX_MARGIN so that
-    # wide-corner paths can genuinely escape the penalty zone of tight-corner predecessors.
     proximity_r = AGENT_DIAMETER * 0.75
 
     def get_neighbors(idx):
@@ -112,21 +89,16 @@ def astar_standard(start_idx, goal_idx, graph, nodes, goal_pos,
                 d1 = _point_to_segment_dist(nx, ny, seg[0][0], seg[0][1], seg[1][0], seg[1][1])
                 d2 = _point_to_segment_dist(mid_x, mid_y, seg[0][0], seg[0][1], seg[1][0], seg[1][1])
                 if min(d1, d2) < proximity_r:
-                    # Penalties now STACK for every predecessor path overlapping this segment.
-                    # This strongly penalizes "queueing" behind multiple agents on the same path.
                     penalty += AGENT_DIAMETER * 4.0 * PRIORITY_PENALTY_MULTIPLIER
             
-            # Inject symmetry-breaking noise (0 to 5.0) just like the Discrete Grid
-            noise = random.uniform(0, 5.0)
-            neighbors.append((next_idx, weight + penalty + noise))
+            neighbors.append((next_idx, weight + penalty))
         return neighbors
 
     def heuristic(idx):
         return dist(nodes[idx], goal_pos)
 
     path_indices = _astar_core(start_idx, goal_idx, get_neighbors, heuristic)
-    if path_indices is None:
-        return None
+    if path_indices is None: return None
     return [nodes[i] for i in path_indices]
 
 
@@ -134,69 +106,36 @@ def astar_standard(start_idx, goal_idx, graph, nodes, goal_pos,
 # Line-segment crossing test (for TBC algorithm)
 # ---------------------------------------------------------------------------
 def _cross(o, a, b):
-    """2D cross product of vectors OA and OB."""
     return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
 def _segments_cross(p1, p2, p3, p4):
-    """
-    Returns True if segment (p1→p2) properly crosses segment (p3→p4).
-    Collinear / overlapping segments return False (same corridor = no penalty).
-    """
     d1 = _cross(p3, p4, p1)
     d2 = _cross(p3, p4, p2)
     d3 = _cross(p1, p2, p3)
     d4 = _cross(p1, p2, p4)
-    
     if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and \
        ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
         return True
-    
-    # We intentionally exclude collinear and endpoint-touching cases.
-    # Overlapping segments = same corridor = not a crossing.
     return False
 
 def _build_per_path_segments(predecessor_paths):
-    """
-    Group segments by predecessor path index.
-    Returns list of lists: [ [seg, seg, ...], [seg, seg, ...], ... ]
-    Each inner list contains the segments of one predecessor path.
-    """
     per_path = []
-    if not predecessor_paths:
-        return per_path
+    if not predecessor_paths: return per_path
     for path in predecessor_paths:
-        if not path or len(path) < 2:
-            continue
+        if not path or len(path) < 2: continue
         segs = []
         for i in range(len(path) - 1):
             segs.append((path[i], path[i+1]))
         per_path.append(segs)
     return per_path
 
-
 # ---------------------------------------------------------------------------
 # A* for TBC (Traffic-Based Crossing) planner
 # ---------------------------------------------------------------------------
-def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
-              predecessor_paths=None):
-    """
-    A* over a visibility graph with CROSSING-based penalties.
-    
-    Unlike proximity-based penalty, TBC counts how many DISTINCT predecessor
-    paths each edge physically crosses (intersects). Agents that follow
-    the same corridor as a predecessor incur 0 crossing penalty.
-    
-    This naturally creates 2-3 corridors instead of 16 unique paths.
-    """
+def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos, predecessor_paths=None):
     per_path_segs = _build_per_path_segments(predecessor_paths)
-    path_segments = _build_path_segments(predecessor_paths)
-    proximity_r = AGENT_DIAMETER * 0.75
-    
-    # Convergence zone: don't penalize crossings near the goal
     convergence_r_sq = (AGENT_DIAMETER * 3) ** 2
     gx, gy = goal_pos
-    
-    # Crossing penalty per distinct path crossed
     CROSSING_PENALTY = 200.0
 
     def get_neighbors(idx):
@@ -205,7 +144,6 @@ def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
             nx, ny = nodes[next_idx]
             cx, cy = nodes[idx]
             
-            # Skip crossing penalty near the goal convergence zone
             if (nx - gx)**2 + (ny - gy)**2 < convergence_r_sq:
                 noise = random.uniform(0, 5.0)
                 neighbors.append((next_idx, weight + noise))
@@ -218,8 +156,7 @@ def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
                     if _segments_cross((cx, cy), (nx, ny), seg[0], seg[1]):
                         path_crossed = True
                         break
-                if path_crossed:
-                    crossings += 1
+                if path_crossed: crossings += 1
             
             penalty = crossings * CROSSING_PENALTY * PRIORITY_PENALTY_MULTIPLIER
             noise = random.uniform(0, 5.0)
@@ -230,70 +167,141 @@ def astar_tbc(start_idx, goal_idx, graph, nodes, goal_pos,
         return dist(nodes[idx], goal_pos)
 
     path_indices = _astar_core(start_idx, goal_idx, get_neighbors, heuristic)
-    if path_indices is None:
-        return None
+    if path_indices is None: return None
     return [nodes[i] for i in path_indices]
 
 
 # ---------------------------------------------------------------------------
-# Agent base class
+# CENTRAL CONTROLLER (The Brain)
+# ---------------------------------------------------------------------------
+class CentralManager:
+    """
+    Handles global pathfinding, prioritizes agents by distance to goal, 
+    and applies path penalties to trailing agents.
+    """
+    def __init__(self, planner, exit_manager):
+        self.planner = planner
+        self.exit_manager = exit_manager
+
+    def plan_all_paths(self, agents):
+        if not self.planner or not agents:
+            return
+
+        goal_pos = self.exit_manager.center_pixel
+        
+        # 1. Rank active, unparked agents by proximity to the goal
+        active_agents = [a for a in agents if a.active and not a.spot_reserved]
+        active_agents.sort(key=lambda a: math.hypot(a.pos.x - goal_pos.x, a.pos.y - goal_pos.y))
+        
+        predecessor_paths = []
+        
+        # 2. Sequential A* with Penalty Accumulation
+        for i, agent in enumerate(active_agents):
+            agent.index = i + 1  # 1 = closest to goal (highest priority)
+            
+            # The planner uses predecessor_paths to heavily penalize overlap
+            new_path = self.planner.find_path(agent, goal_pos, predecessor_paths)
+            
+            if new_path:
+                agent.path = new_path
+                agent.path_valid = True
+                agent.current_wp_index = 0
+                
+                # Add path to the pile so the NEXT agent is penalized against it
+                if len(new_path) > 1:
+                    predecessor_paths.append(list(new_path))
+            else:
+                agent.path_valid = False
+                agent.path = []
+
+
+# ---------------------------------------------------------------------------
+# LOCAL CONTROLLER (The Muscle)
 # ---------------------------------------------------------------------------
 class Agent:
-    def __init__(self, start, exit_manager, planner, predecessor_paths=None):
+    def __init__(self, start, exit_manager):
         self.pos = pygame.Vector2(start)
         self.exit_manager = exit_manager
-        self.planner = planner
-        self.predecessor_paths = predecessor_paths or []
+        
         self.active = True
         self.waiting = False
         self.spot_reserved = False 
         self.target_grid_coord = None
+        
+        # Stuck / Deadlock Detection
+        self.stuck_timer = 0
+        self.wait_timer  = 0   # how long we've been held in 'waiting'
+        self.is_stuck = False
         
         # Parking state
         self.dfs_current_cell = None
         self.dfs_settled = False
         self.grid_path = []
         self.grid_patience = 0
-        self.grid_step_cooldown = 0     # Frames until next discrete step
-        
-        # Smooth parking blend: 0.0 = full A*, 1.0 = full funnel
+        self.grid_step_cooldown = 0
         self.parking_blend = 0.0
 
+        # Local Path Tracking State
         self.path_valid = False
         self.path = []
         self.current_wp_index = 0
         self.velocity = pygame.Vector2(0, 0)
-        self.color = RED
-        self.patience = 0
-        self.patience_threshold = random.randint(30, 60)
-        self.push_state = 0 # Frames to ignore safety checks (break deadlocks)
+        self.push_state = 0 
         self.prev_pos = pygame.Vector2(start)
-        self.recalc_path()
 
-    def recalc_path(self):
-        if not self.active: return
-        self.target_pos = self.exit_manager.center_pixel
-        new_path = self.planner.find_path(self, self.target_pos, self.predecessor_paths)
-        if new_path:
-            self.path = new_path
-            if len(new_path) > 1:
-                self.current_wp_index = 1
+    def _update_waypoint(self):
+        """
+        Projects agent position onto path segments. Ensures smooth path re-joining
+        without backtracking if pushed off course.
+        """
+        if not self.path or self.current_wp_index >= len(self.path):
+            return
+
+        # Snap to the closest valid forward segment
+        best_index = self.current_wp_index
+        min_dist_sq = float('inf')
+        
+        for i in range(max(1, self.current_wp_index), len(self.path)):
+            prev_wp = pygame.Vector2(self.path[i-1])
+            curr_wp = pygame.Vector2(self.path[i])
+            
+            seg_vec = curr_wp - prev_wp
+            seg_len_sq = seg_vec.length_squared()
+            
+            if seg_len_sq == 0:
+                d_sq = self.pos.distance_squared_to(curr_wp)
             else:
-                self.current_wp_index = 0
-            self.path_valid = True
-        else:
-            self.path_valid = False 
+                t = clamp((self.pos - prev_wp).dot(seg_vec) / seg_len_sq, 0, 1)
+                proj = prev_wp + t * seg_vec
+                d_sq = self.pos.distance_squared_to(proj)
+            
+            if d_sq < min_dist_sq - 1.0: 
+                min_dist_sq = d_sq
+                best_index = i
+                
+        self.current_wp_index = best_index
+
+        # Normal progression check for the active segment
+        if self.current_wp_index < len(self.path):
+            target = pygame.Vector2(self.path[self.current_wp_index])
+            direction = target - self.pos
+            
+            if direction.length_squared() < AGENT_RADIUS**2:
+                self.current_wp_index += 1
+            elif self.current_wp_index > 0:
+                prev = pygame.Vector2(self.path[self.current_wp_index - 1])
+                segment = target - prev
+                if segment.length_squared() > 0 and direction.dot(segment) < 0:
+                    self.current_wp_index += 1
 
     def local_safety_check(self, agents):
         self.waiting = False
         if not self.active: return
         
-        # If in push mode, ignore safety checks to force movement
         if self.push_state > 0:
             self.push_state -= 1
             return
 
-        # Determine heading: use velocity if moving, otherwise use path target
         heading = None
         if self.velocity.length() > 0.1:
             heading = self.velocity.normalize()
@@ -314,23 +322,34 @@ class Agent:
             distance = d_vec.length()
             if distance < 0.1: continue 
             
-            # Only hard-brake if they are literally about to collide (< 1.2 robot lengths).
             if distance < AGENT_DIAMETER * 1.2: 
                 d_norm = d_vec.normalize()
                 angle = heading.dot(d_norm)
-                if angle > 0.8: 
-                    # Smart Following: Don't wait if the agent ahead is moving fast enough
+                if angle > 0.8:
+                    # Corner-turn check: compute where the other agent is actually heading.
+                    # If their intended direction differs substantially from ours (crossing
+                    # paths / one of us just turned a corner), don't freeze — let the
+                    # physics collision resolver handle the overlap instead.
+                    other_heading = None
+                    if other.velocity.length() > 0.5:
+                        other_heading = other.velocity.normalize()
+                    elif other.path and other.current_wp_index < len(other.path):
+                        tgt2 = pygame.Vector2(other.path[other.current_wp_index])
+                        d2   = tgt2 - other.pos
+                        if d2.length() > 0.1:
+                            other_heading = d2.normalize()
+                    if other_heading is not None and heading.dot(other_heading) < 0.4:
+                        continue   # crossing / turning — not a queue; skip the freeze
+
                     if other.velocity.length() > 0.5:
                         move_alignment = heading.dot(other.velocity.normalize())
                         if move_alignment > 0.7:
-                            if distance > AGENT_DIAMETER * 1.05:
-                                continue
+                            if distance > AGENT_DIAMETER * 1.05: continue
                     self.waiting = True; return 
 
     def resolve_collision(self, agents, obstacles):
         if not self.active: return
 
-        # Shape-specific physics for obstacles
         from algorithms.obstacles import CircleObstacle, FreehandObstacle
 
         for obs in obstacles:
@@ -379,7 +398,6 @@ class Agent:
         if self.pos.y < AGENT_RADIUS: self.pos.y = AGENT_RADIUS
         if self.pos.y > MAP_HEIGHT - AGENT_RADIUS: self.pos.y = MAP_HEIGHT - AGENT_RADIUS
 
-        # Agent-Agent
         for other in agents:
             if other is self: continue
             
@@ -413,64 +431,59 @@ class Agent:
         if not self.active: return
         
         if not self.path_valid:
-            self.patience += 1
-            if self.patience > self.patience_threshold:
-                self.recalc_path()
-                self.patience = 0
-                self.patience_threshold = random.randint(30, 60)
+            self.velocity = pygame.Vector2(0, 0)
             return
 
-        # Always compute the A* waypoint velocity (even while blending into parking)
+        self._update_waypoint()
+
         astar_velocity = pygame.Vector2(0, 0)
         if self.current_wp_index < len(self.path):
             target = pygame.Vector2(self.path[self.current_wp_index])
             direction = target - self.pos
-            if direction.length() < AGENT_RADIUS:
-                self.pos = target
-                self.current_wp_index += 1
-            else:
+            if direction.length() > 0:
                 astar_velocity = direction.normalize() * AGENT_SPEED
 
-        # Always compute the funnel pull velocity (even before fully in parking)
         funnel_velocity = pygame.Vector2(0, 0)
         if self.spot_reserved:
             funnel_target = self.exit_manager.center_pixel
             diff = funnel_target - self.pos
-            dist_to_funnel = diff.length()
-            if dist_to_funnel > 2.0:
+            if diff.length() > 2.0:
                 pull_strength = AGENT_SPEED * 0.8
                 funnel_velocity = diff.normalize() * pull_strength
 
-        blend = self.parking_blend  # 0.0 = pure A*, 1.0 = pure funnel
+        blend = self.parking_blend 
 
         if blend >= 1.0:
-            # Fully in parking funnel — hand off entirely to exit_manager
             self.exit_manager.update_agent(self)
         elif blend > 0.0:
-            # Blending: lerp between A* velocity and funnel pull
             blended_vel = astar_velocity * (1.0 - blend) + funnel_velocity * blend
             if blended_vel.length() > AGENT_SPEED:
                 blended_vel.scale_to_length(AGENT_SPEED)
             self.velocity = blended_vel
             self.pos += self.velocity
         else:
-            # Pure A* path following
             if not self.waiting:
-                moved_dist = (self.pos - self.prev_pos).length()
-                self.prev_pos = pygame.Vector2(self.pos)
-                if self.push_state == 0 and self.path_valid and moved_dist < 0.5:
-                    self.patience += 1
-                    if self.patience > self.patience_threshold:
-                        self.recalc_path()
-                        self.patience = 0
-                        self.patience_threshold = random.randint(30, 60)
-                        self.push_state = 45
-                else:
-                    self.patience = 0
-            self.velocity = astar_velocity
-            self.pos += self.velocity
+                self.velocity = astar_velocity
+                self.pos += self.velocity
 
-        # Always tick the entry check so parking_blend ramps up each frame
+        # STUCK DETECTION: moving very slowly outside parking / waiting state
+        if blend == 0.0 and self.velocity.length() < 0.2 and not self.waiting:
+            self.stuck_timer += 1
+        else:
+            self.stuck_timer = 0
+
+        # DEADLOCK DETECTION: continuously waiting ⟹ probably a circular block
+        if blend == 0.0 and self.waiting:
+            self.wait_timer += 1
+        else:
+            self.wait_timer = 0
+
+        # 60 frames ≈ 1 s stuck;  90 frames ≈ 1.5 s deadlocked
+        if self.stuck_timer > 60 or self.wait_timer > 90:
+            self.is_stuck = True
+            self.stuck_timer = 0
+            self.wait_timer  = 0
+
         self._check_parking_logic(end_rect)
 
     def get_color(self):

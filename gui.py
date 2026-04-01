@@ -10,12 +10,13 @@ import math
 from PIL import Image
 from config import *
 from parking import SmartExit, get_grid_positions
-from fundamental import Agent
+from fundamental import Agent, CentralManager
 from algorithms.field import update_electric
 from algorithms.standard import GlobalPlanner
+from algorithms.standard_queue import QueuePlanner
 from algorithms.discrete_grid import Discretisation
 from algorithms.thetastar import ThetaStarPlanner
-from algorithms.obstacles import RectObstacle, CircleObstacle, FreehandObstacle
+from algorithms.obstacles import Obstacle, RectObstacle, CircleObstacle, FreehandObstacle
 
 class SimState:
     def __init__(self, map_offset_x):
@@ -23,22 +24,22 @@ class SimState:
         self.agents = []
         self.planner = None
         self.exit_manager = None
+        self.central_manager = None
         self.all_parked = False
         self.path_error = False
         self.start_ticks = 0
         self.completion_time_ms = None
         self.use_electric = False
-        self.recalc_index = 0
         self.elapsed_time_ms = 0.0
     
     def reset(self):
         self.agents = []
+        self.central_manager = None
         self.all_parked = False
         self.path_error = False
         self.start_ticks = 0
         self.completion_time_ms = None
         self.elapsed_time_ms = 0.0
-        self.recalc_index = 0
 
 # --- UI CLASSES ---
 class Button:
@@ -89,7 +90,6 @@ class Dropdown:
         pygame.draw.rect(surface, (100, 150, 255), self.rect, 2, border_radius=5)
         
         text = self.options[self.selected_index]
-        # Truncate text if too long
         if len(text) > 18: text = text[:15] + "..."
         
         txt_surf = font.render(text, True, TEXT_WHITE)
@@ -143,6 +143,21 @@ class Dropdown:
 def ensure_dir(directory):
     if not os.path.exists(directory): os.makedirs(directory)
 
+def smooth_polyline(points, iterations=3):
+    """Chaikin corner-cutting: smooths a polyline without moving endpoints."""
+    for _ in range(iterations):
+        if len(points) < 3:
+            break
+        smoothed = [points[0]]
+        for i in range(len(points) - 1):
+            x0, y0 = points[i]
+            x1, y1 = points[i + 1]
+            smoothed.append((0.75*x0 + 0.25*x1, 0.75*y0 + 0.25*y1))
+            smoothed.append((0.25*x0 + 0.75*x1, 0.25*y0 + 0.75*y1))
+        smoothed.append(points[-1])
+        points = smoothed
+    return points
+
 def save_map(obstacles, filename="mars_map.json"):
     ensure_dir("maps")
     filepath = os.path.join("maps", filename)
@@ -159,7 +174,6 @@ def load_map(filename="mars_map.json"):
         return []
     try:
         with open(filepath, 'r') as f: data = json.load(f)
-        # Backwards compatibility for old rect maps
         loaded = []
         for item in data:
             if isinstance(item, list):
@@ -224,7 +238,6 @@ def draw_electric_field(surface, agents, obstacles, end_rect, map_offset_x):
 
 def draw_exit_grid(surface, exit_manager, map_offset_x):
     if not exit_manager: return
-    # The parking zone is now continuous. We only draw its geometric center point.
     center_pos = exit_manager.center_pixel
     draw_pos = (int(center_pos.x + map_offset_x), int(center_pos.y))
     pygame.draw.circle(surface, (255, 180, 50), draw_pos, 4)
@@ -236,8 +249,6 @@ def main():
     pygame.display.set_caption("MARS: Sim Control")
     clock = pygame.time.Clock()
     
-    # MacOS Retina displays can blow up unadjusted System fonts.
-    # We use smaller absolute values for the font heights.
     font_ui = pygame.font.SysFont("Helvetica", 11)
     font_bold = pygame.font.SysFont("Helvetica", 11, bold=True)
     font_tiny = pygame.font.SysFont("Helvetica", 9, bold=True)
@@ -261,13 +272,12 @@ def main():
     
     algo_left_y = by + 100
     algo_right_y = algo_left_y + 60
-    algo_options = ["Electric Field", "Standard Path", "Standard (Penalized)", "TBC", "Discrete Grid", "Theta*"]
-    algo_dropdown_left = Dropdown(bx, algo_left_y, bw, 28, algo_options, default_index=1)
-    algo_dropdown_right = Dropdown(bx, algo_right_y, bw, 28, algo_options, default_index=5)
-    
+    algo_options = ["Electric Field", "Standard (Penalized)", "TBC", "Discrete Grid", "Theta*", "Standard Queue"]
+    algo_dropdown_left = Dropdown(bx, algo_left_y, bw, 28, algo_options, default_index=0)
+    algo_dropdown_right = Dropdown(bx, algo_right_y, bw, 28, algo_options, default_index=4)
+
     def _get_planner_mode(idx):
-        """Map dropdown index to GlobalPlanner mode string."""
-        return {1: 'standard', 2: 'penalized', 3: 'tbc'}.get(idx, 'standard')
+        return {1: 'penalized', 2: 'tbc'}.get(idx, 'penalized')
     
     grid_y = algo_right_y + 40
     btn_show_grid = Button(bx, grid_y, bw, 28, "Show Grid", "TOGGLE_GRID", toggle=True)
@@ -311,8 +321,8 @@ def main():
 
     custom_obstacles = []
     current_drawing_rect = None
-    current_drawing_circ = None  # (cx, cy, current_r)
-    current_drawing_freehand = [] # [(x, y), ...]
+    current_drawing_circ = None  
+    current_drawing_freehand = [] 
     active_tool = "TOOL_RECT"
     
     sim_left = SimState(PANEL_WIDTH)
@@ -343,15 +353,18 @@ def main():
                 if dropdown.handle_event(event):
                     dropdown_consumed = True
                     if dropdown.selected_index != prev_algo and state in ["RUNNING", "PAUSED"]:
-                        if dropdown.selected_index == 4:
+                        if dropdown.selected_index == 3:
                             sim.planner = Discretisation(custom_obstacles)
+                        elif dropdown.selected_index == 4:
+                            sim.planner = ThetaStarPlanner(custom_obstacles)
+                        elif dropdown.selected_index == 5:
+                            sim.planner = QueuePlanner(custom_obstacles)
                         else:
                             sim.planner = GlobalPlanner(custom_obstacles, mode=_get_planner_mode(dropdown.selected_index))
                         
-                        if sim.agents:
-                            for agent in sim.agents:
-                                agent.planner = sim.planner
-                                agent.recalc_path()
+                        if sim.central_manager:
+                            sim.central_manager.planner = sim.planner
+                            sim.central_manager.plan_all_paths(sim.agents)
 
             # 2. Buttons
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not dropdown_consumed:
@@ -389,14 +402,16 @@ def main():
                                         for sim in (sim_left, sim_right):
                                             if sim.planner:
                                                 sim.planner.update_obstacles(custom_obstacles)
-                                                for agent in sim.agents: agent.recalc_path()
+                                            if sim.central_manager:
+                                                sim.central_manager.plan_all_paths(sim.agents)
                             elif action == "CLEAR_WALLS":
                                 custom_obstacles = []
                                 if state in ["RUNNING", "PAUSED"]:
                                     for sim in (sim_left, sim_right):
                                         if sim.planner:
                                             sim.planner.update_obstacles([])
-                                            for agent in sim.agents: agent.recalc_path()
+                                        if sim.central_manager:
+                                            sim.central_manager.plan_all_paths(sim.agents)
                 
                             elif action in ["TOOL_RECT", "TOOL_CIRC", "TOOL_DRAW"]:
                                 active_tool = action
@@ -423,7 +438,8 @@ def main():
                             for sim in (sim_left, sim_right):
                                 if sim.planner:
                                     sim.planner.update_obstacles(custom_obstacles)
-                                    for agent in sim.agents: agent.recalc_path()
+                                if sim.central_manager:
+                                    sim.central_manager.plan_all_paths(sim.agents)
 
             if event.type == pygame.MOUSEMOTION:
                 for btn in buttons: btn.check_hover(mouse_pos)
@@ -435,7 +451,7 @@ def main():
                     current_drawing_circ[2] = r
                 if current_drawing_freehand is not None and len(current_drawing_freehand) > 0 and pygame.mouse.get_pressed()[0]:
                     last_point = current_drawing_freehand[-1]
-                    if math.hypot(last_point[0] - map_mouse_pos[0], last_point[1] - map_mouse_pos[1]) > 5:
+                    if math.hypot(last_point[0] - map_mouse_pos[0], last_point[1] - map_mouse_pos[1]) > 8:
                         current_drawing_freehand.append(map_mouse_pos)
 
 
@@ -444,16 +460,13 @@ def main():
                 
                 def _check_valid_obs(obs):
                     valid = True
-                    # Check agents
                     if sim_left.agents or sim_right.agents:
                         for sim in (sim_left, sim_right):
                             for agent in sim.agents:
                                 a_rect = pygame.Rect(agent.pos.x - AGENT_RADIUS, agent.pos.y - AGENT_RADIUS, AGENT_DIAMETER, AGENT_DIAMETER)
-                                # Adjust obstacle by translating to sim panel
                                 moved_obs = obs.move(-sim.map_offset_x + PANEL_WIDTH, 0)
                                 if moved_obs.colliderect(a_rect): 
                                     return False
-                    # Check starts/ends
                     if obs.colliderect(start_rect) or obs.colliderect(end_rect):
                         return False
                     return True
@@ -468,7 +481,8 @@ def main():
                     if current_drawing_circ[2] > 5:
                         new_obs = CircleObstacle(current_drawing_circ[0], current_drawing_circ[1], current_drawing_circ[2])
                 elif current_drawing_freehand is not None and len(current_drawing_freehand) > 1:
-                    new_obs = FreehandObstacle(list(current_drawing_freehand), thickness=10)
+                    smoothed = smooth_polyline(list(current_drawing_freehand), iterations=3)
+                    new_obs = FreehandObstacle(smoothed, thickness=10)
 
                 current_drawing_rect = None
                 current_drawing_circ = None
@@ -483,7 +497,8 @@ def main():
                             for sim in (sim_left, sim_right):
                                 if sim.planner:
                                     sim.planner.update_obstacles(custom_obstacles)
-                                    for agent in sim.agents: agent.recalc_path()
+                                if sim.central_manager:
+                                    sim.central_manager.plan_all_paths(sim.agents)
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -492,27 +507,32 @@ def main():
                 if event.key == pygame.K_RETURN and state == "DRAWING":
                     print("Initializing Dual Simulation...")
                     for sim, dropdown in [(sim_left, algo_dropdown_left), (sim_right, algo_dropdown_right)]:
-                        if dropdown.selected_index == 4:
+                        
+                        # 1. Setup Planners
+                        if dropdown.selected_index == 3:
                             sim.planner = Discretisation(custom_obstacles)
-                        elif dropdown.selected_index == 5:
+                        elif dropdown.selected_index == 4:
                             sim.planner = ThetaStarPlanner(custom_obstacles)
+                        elif dropdown.selected_index == 5:
+                            sim.planner = QueuePlanner(custom_obstacles)
                         else:
                             sim.planner = GlobalPlanner(custom_obstacles, mode=_get_planner_mode(dropdown.selected_index))
+                        
                         sim.exit_manager = SmartExit(end_rect)
+                        
+                        # 2. Initialize Central Manager
+                        sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
+                        
+                        # 3. Spawn Dumb Agents (Local Controllers)
                         sim.agents = []
-                        predecessor_paths = []
-                        
-                        # Sort spawn positions by distance to goal (closest = highest priority)
-                        indexed_spawns = list(enumerate(spawn_positions))
-                        indexed_spawns.sort(key=lambda x: math.hypot(x[1][0] - end_center[0], x[1][1] - end_center[1]))
-                        
-                        for priority, (orig_idx, pos) in enumerate(indexed_spawns):
-                            agent = Agent(pos, sim.exit_manager, sim.planner,
-                                          predecessor_paths=list(predecessor_paths))
-                            agent.index = priority + 1  # 1 = closest to goal = highest priority
+                        for pos in spawn_positions:
+                            agent = Agent(pos, sim.exit_manager)
                             sim.agents.append(agent)
-                            if agent.path:
-                                predecessor_paths.append(list(agent.path))
+                            
+                        # 4. Central Manager does the initial path planning
+                        sim.central_manager.plan_all_paths(sim.agents)
+                        if isinstance(sim.planner, QueuePlanner):
+                            sim.planner.reset_queue(sim.agents)
                                 
                     state = "RUNNING"
                     start_time = pygame.time.get_ticks()
@@ -550,13 +570,31 @@ def main():
 
             for _ in range(sim_speed):
                 for sim in (sim_left, sim_right):
-                    if sim.all_parked: continue # Map finished
+                    if sim.all_parked: continue 
+                    
+                    # --- STUCK RE-PLAN TRIGGER ---
+                    if not sim.use_electric and not isinstance(sim.planner, QueuePlanner):
+                        needs_replan = False
+                        for agent in sim.agents:
+                            if agent.is_stuck:
+                                needs_replan = True
+                                agent.is_stuck = False
+                                import random as _rnd
+                                agent.pos.x += _rnd.uniform(-8, 8)
+                                agent.pos.y += _rnd.uniform(-8, 8)
+                        if needs_replan and sim.central_manager:
+                            sim.central_manager.plan_all_paths(sim.agents)
 
+                    # Collision / Physics Updates
                     if not sim.use_electric:
-                        for agent in sim.agents: agent.local_safety_check(sim.agents)
+                        if isinstance(sim.planner, QueuePlanner):
+                            sim.planner.tick(sim.agents)
+                        else:
+                            for agent in sim.agents: agent.local_safety_check(sim.agents)
 
                     sim.all_parked = True
                     sim.path_error = False
+                    
                     for agent in sim.agents:
                         if sim.use_electric: 
                             update_electric(agent, sim.agents, custom_obstacles, end_rect)
@@ -568,10 +606,26 @@ def main():
                     
                     for _ in range(4):
                         for agent in sim.agents:
-                            if not agent.dfs_settled:  # Allow agents navigating the grid to push past each other
+                            if not agent.dfs_settled: 
                                 agent.resolve_collision(sim.agents, custom_obstacles)
+                        if sim.exit_manager:
+                            sim.exit_manager.resolve_collisions_inside(sim.agents)
+                            
+                    # Queue hard-spacing enforcement (after all physics)
+                    if isinstance(sim.planner, QueuePlanner):
+                        sim.planner.enforce_queue(sim.agents)
 
-                    # Timer stops when ALL agents have entered the grid
+                    # --- EXIT GRID PHYSICS (NEW) ---
+                    if sim.exit_manager:
+                        for agent in sim.agents:
+                            # Check if agent has entered the exit zone
+                            if sim.exit_manager.rect.collidepoint(agent.pos):
+                                sim.exit_manager.check_entry(agent)
+                            
+                            # Update physics if agent is captured
+                            if agent.spot_reserved:
+                                sim.exit_manager.update_agent(agent)
+
                     all_entered = all(agent.spot_reserved for agent in sim.agents) if sim.agents else False
                     if all_entered and sim.completion_time_ms is None:
                         sim.completion_time_ms = sim.elapsed_time_ms
@@ -610,7 +664,7 @@ def main():
         # 2. Controls
         for btn in buttons: btn.draw(screen, font_ui)
         
-        # 3. Algorithm Labels (Dropdowns drawn later)
+        # 3. Algorithm Labels
         screen.blit(font_label.render("LEFT MAP", True, TEXT_WHITE), (bx, algo_left_y - 15))
         screen.blit(font_label.render("RIGHT MAP", True, TEXT_WHITE), (bx, algo_right_y - 15))
 
@@ -642,7 +696,6 @@ def main():
             timer_color = GREEN if sim.all_parked else TEXT_WHITE
             timer_surf = font_timer.render(time_str, True, timer_color)
             
-            # Subtle background pill
             tx = sim.map_offset_x + (MAP_WIDTH // 2) - (timer_surf.get_width() // 2)
             ty = 20
             bg_rect = timer_surf.get_rect(topleft=(tx, ty)).inflate(20, 10)
@@ -650,7 +703,6 @@ def main():
             pygame.draw.rect(screen, (80, 80, 80), bg_rect, 1, border_radius=5)
             screen.blit(timer_surf, (tx, ty))
 
-            # Draw exit grid first, regardless of running state
             fake_exit_manager = SmartExit(end_rect) if sim.exit_manager is None else sim.exit_manager
             draw_exit_grid(screen, fake_exit_manager, sim.map_offset_x)
 
@@ -660,7 +712,7 @@ def main():
             # Draw Discretisation Grid
             if btn_show_grid.active:
                 viz_planner = sim.planner
-                if (viz_planner is None or not isinstance(viz_planner, Discretisation)) and dropdown.selected_index == 4:
+                if (viz_planner is None or not isinstance(viz_planner, Discretisation)) and dropdown.selected_index == 3:
                     viz_planner = Discretisation(custom_obstacles)
 
                 if isinstance(viz_planner, Discretisation):
@@ -706,7 +758,6 @@ def main():
                             pygame.draw.lines(screen, YELLOW, False, display_points, 1)
                     pygame.draw.circle(screen, agent.get_color(), draw_pos, AGENT_RADIUS)
                     pygame.draw.circle(screen, BLACK, draw_pos, AGENT_RADIUS, 1)
-                    # Draw agent number
                     if hasattr(agent, 'index'):
                         num_surf = font_tiny.render(str(agent.index), True, WHITE)
                         screen.blit(num_surf, (draw_pos[0] - num_surf.get_width()//2, draw_pos[1] - num_surf.get_height()//2))
@@ -720,7 +771,6 @@ def main():
 
         screen.set_clip(None)
         
-        # Draw lowest vertical elements first so upper ones render ON TOP.
         algo_dropdown_right.draw(screen, font_ui)
         algo_dropdown_left.draw(screen, font_ui)
 

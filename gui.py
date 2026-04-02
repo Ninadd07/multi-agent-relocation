@@ -324,7 +324,7 @@ def apply_loaded_map(custom_obstacles, state, sim_left, sim_right):
             if sim.central_manager:
                 if isinstance(sim.planner, Discretisation):
                     sim.planner.set_agents(sim.agents)
-                sim.central_manager.plan_all_paths(sim.agents)
+                sim.central_manager.plan_all_paths(sim.agents, force_replace=True)
                 if isinstance(sim.planner, QueuePlanner):
                     sim.planner.reset_queue(sim.agents)
 
@@ -745,16 +745,23 @@ def main():
 
                 sim.replan_accumulator_ms += dt
 
-                while sim.replan_accumulator_ms >= sim.replan_interval_ms:
-                    sim.replan_accumulator_ms -= sim.replan_interval_ms
+                if sim.replan_accumulator_ms >= sim.replan_interval_ms:
+                    sim.replan_accumulator_ms = 0
 
-                    if isinstance(sim.planner, QueuePlanner):
-                        break
+                    if not isinstance(sim.planner, QueuePlanner):
+                        # only replan agents that are actually in trouble
+                        replanners = [
+                            a for a in sim.agents
+                            if a.active and not a.spot_reserved and (a.is_stuck or not a.path_valid)
+                        ]
 
-                    if isinstance(sim.planner, Discretisation):
-                        sim.planner.set_agents(sim.agents)
+                        if replanners:
+                            if isinstance(sim.planner, Discretisation):
+                                sim.planner.set_agents(sim.agents)
+                            sim.central_manager.plan_all_paths(replanners)
 
-                    sim.central_manager.plan_all_paths(sim.agents)
+                            for a in replanners:
+                                a.is_stuck = False
 
             for _ in range(sim_speed):
                 for sim in (sim_left, sim_right):
@@ -762,18 +769,18 @@ def main():
                         continue
 
                     if not isinstance(sim.planner, QueuePlanner):
-                        needs_replan = False
+                        stuck_agents = []
                         for agent in sim.agents:
-                            if agent.is_stuck:
-                                needs_replan = True
+                            if agent.is_stuck and agent.active and not agent.spot_reserved:
+                                stuck_agents.append(agent)
                                 agent.is_stuck = False
-                                import random as _rnd
-                                agent.pos.x += _rnd.uniform(-8, 8)
-                                agent.pos.y += _rnd.uniform(-8, 8)
-                        if needs_replan and sim.central_manager:
+                                agent.pos.x += random.uniform(-12, 12)
+                                agent.pos.y += random.uniform(-12, 12)
+
+                        if stuck_agents:
                             if isinstance(sim.planner, Discretisation):
                                 sim.planner.set_agents(sim.agents)
-                            sim.central_manager.plan_all_paths(sim.agents)
+                            sim.central_manager.plan_all_paths(stuck_agents)
 
                     if not sim.use_electric:
                         if isinstance(sim.planner, QueuePlanner):

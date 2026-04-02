@@ -193,7 +193,7 @@ class CentralManager:
         self.planner = planner
         self.exit_manager = exit_manager
 
-    def plan_all_paths(self, agents):
+    def plan_all_paths(self, agents, force_replace=False):
         if not self.planner or not agents:
             return
 
@@ -219,7 +219,7 @@ class CentralManager:
                 use_new = True
 
                 # If old path exists, only switch if the new path is clearly better
-                if old_path and old_wp_index < len(old_path):
+                if (not force_replace) and old_path and old_wp_index < len(old_path):
                     new_cost = path_length(new_path)
                     old_remaining = old_path[old_wp_index:]
                     old_cost = path_length(old_remaining)

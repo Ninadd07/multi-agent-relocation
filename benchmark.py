@@ -36,7 +36,7 @@ from algorithms.obstacles import Obstacle, RectObstacle
 # SETTINGS
 # ----------------------------
 MAP_FILES = [f"mars_map_{i}.json" for i in range(1, 11)]
-RUNS_PER_MAP = 1
+RUNS_PER_MAP = 5
 
 WINDOW_WIDTH = 1720
 WINDOW_HEIGHT = 980
@@ -322,8 +322,8 @@ class BenchmarkState:
                 if agent.is_stuck:
                     needs_replan = True
                     agent.is_stuck = False
-                    agent.pos.x += random.uniform(-8, 8)
-                    agent.pos.y += random.uniform(-8, 8)
+                    agent.pos.x += random.uniform(-20, 20)
+                    agent.pos.y += random.uniform(-20, 20)
 
             if needs_replan:
                 if isinstance(self.planner, Discretisation):

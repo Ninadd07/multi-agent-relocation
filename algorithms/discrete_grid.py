@@ -29,7 +29,7 @@ def _build_path_segments(predecessor_paths):
     return segments
 
 class Discretisation:
-    def __init__(self, obstacles=None, base_grid=64.0, min_grid=8.0):
+    def __init__(self, obstacles=None, base_grid=24, min_grid=8):
         """
         base_grid: maximum size for a cell (coarse resolution)
         min_grid: minimum size for a cell (fine resolution near obstacles)
@@ -39,10 +39,11 @@ class Discretisation:
         self.obstacles = obstacles if obstacles else []
         self.agents = []
         self.cached_grid = None
-
+        self.cached_neighbors = None
     def update_obstacles(self, obstacles):
         self.obstacles = obstacles
         self.cached_grid = None
+        self.cached_neighbors = None
 
     def set_agents(self, agents):
         self.agents = agents
@@ -127,6 +128,45 @@ class Discretisation:
                 
         return best_idx
 
+    def build_adjacency(self, grid_cells):
+        neighbors_map = {i: [] for i in range(len(grid_cells))}
+        free_cells = []
+
+        for i, cell in enumerate(grid_cells):
+            if not cell[4]:
+                continue
+            cx = cell[0] + cell[2] / 2
+            cy = cell[1] + cell[3] / 2
+            cw = cell[2]
+            ch = cell[3]
+            free_cells.append((i, cx, cy, cw, ch))
+
+        EPS = 0.1
+
+        for a_idx, ax, ay, aw, ah in free_cells:
+            for b_idx, bx, by, bw, bh in free_cells:
+                if a_idx == b_idx:
+                    continue
+
+                if abs(bx - ax) > (aw + bw) / 2 + 0.1:
+                    continue
+                if abs(by - ay) > (ah + bh) / 2 + 0.1:
+                    continue
+
+                dx_val = abs(bx - ax)
+                dy_val = abs(by - ay)
+                sum_w = (aw + bw) / 2
+                sum_h = (ah + bh) / 2
+
+                touch_x = (abs(dx_val - sum_w) < EPS) and (dy_val < sum_h - EPS)
+                touch_y = (abs(dy_val - sum_h) < EPS) and (dx_val < sum_w - EPS)
+                touch_diag = (abs(dx_val - sum_w) < EPS) and (abs(dy_val - sum_h) < EPS)
+
+                if touch_x or touch_y or touch_diag:
+                    edge_dist = math.hypot(bx - ax, by - ay)
+                    neighbors_map[a_idx].append((b_idx, bx, by, edge_dist))
+
+        return neighbors_map
     # --- Path Smoothing ---
     def smooth_path(self, path, radius):
         if not path or len(path) < 3:
@@ -182,7 +222,10 @@ class Discretisation:
     def plan_path(self, robot, target, owner_agent=None, predecessor_paths=None):
         if self.cached_grid is None:
             self.cached_grid = self.build_occupancy_grid(robot.radius)
+            self.cached_neighbors = self.build_adjacency(self.cached_grid)
+
         grid_cells = self.cached_grid
+        neighbors_map = self.cached_neighbors
         
         start_idx = self.get_cell_index(robot.x, robot.y, grid_cells)
         end_idx = self.get_cell_index(target[0], target[1], grid_cells)
@@ -207,59 +250,26 @@ class Discretisation:
         radius_6 = robot.radius * 6.0
 
         def get_neighbors(current_idx):
-            current_cell = grid_cells[current_idx]
-            cx = current_cell[0] + current_cell[2] / 2
-            cy = current_cell[1] + current_cell[3] / 2
-            cw, ch = current_cell[2], current_cell[3]
             neighbors = []
 
-            for i, cell in enumerate(grid_cells):
-                if i == current_idx or not cell[4]:  # cell[4] is is_free
-                    continue
-
-                nx = cell[0] + cell[2] / 2
-                ny = cell[1] + cell[3] / 2
-                nw, nh = cell[2], cell[3]
-
-                # Quick bounding-box adjacency reject
-                if abs(nx - cx) > (cw + nw) / 2 + 0.1: continue
-                if abs(ny - cy) > (ch + nh) / 2 + 0.1: continue
-
-                # Geometric adjacency check
-                dx_val, dy_val = abs(nx - cx), abs(ny - cy)
-                sum_w, sum_h = (cw + nw) / 2, (ch + nh) / 2
-                EPS = 0.1
-
-                touch_x = (abs(dx_val - sum_w) < EPS) and (dy_val < sum_h - EPS)
-                touch_y = (abs(dy_val - sum_h) < EPS) and (dx_val < sum_w - EPS)
-                touch_diag = (abs(dx_val - sum_w) < EPS) and (abs(dy_val - sum_h) < EPS)
-
-                if not (touch_x or touch_y or touch_diag):
-                    continue
-
-                edge_dist = math.hypot(nx - cx, ny - cy)
+            for i, nx, ny, edge_dist in neighbors_map.get(current_idx, []):
                 penalty = 0
 
-                # --- Dynamic agent penalty ---
                 for ax, ay in agent_positions:
                     if abs(nx - ax) > radius_6 or abs(ny - ay) > radius_6:
                         continue
                     d_sq = (nx - ax) ** 2 + (ny - ay) ** 2
-                    if d_sq < inner_r_sq: penalty += 60
-                    elif d_sq < outer_r_sq: penalty += 10
+                    if d_sq < inner_r_sq:
+                        penalty += 60
+                    elif d_sq < outer_r_sq:
+                        penalty += 10
 
-                # --- Predecessor path penalty ---
-                # This is the key change. The penalty for following a previous path
-                # was too low, causing agents to queue. We increase it significantly
-                # to encourage finding alternative routes.
                 for seg in path_segments:
                     if self.point_to_segment_distance(nx, ny, seg[0], seg[1]) < AGENT_DIAMETER * 1.5:
-                        penalty += AGENT_DIAMETER * 10.0  # Was AGENT_DIAMETER
+                        penalty += AGENT_DIAMETER * 10.0
                         break
 
-                # --- Symmetry-breaking noise ---
-                noise = random.uniform(0, 5.0)
-                neighbors.append((i, edge_dist + penalty + noise))
+                neighbors.append((i, edge_dist + penalty))
 
             return neighbors
 

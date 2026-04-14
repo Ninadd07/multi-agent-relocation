@@ -119,7 +119,7 @@ class QueuePlanner:
     # ------------------------------------------------------------------
     def _get_corners(self):
         nodes  = []
-        off    = 2.0
+        off    = 20.0
         margin = 10.0
 
         for obs in self.bloated:

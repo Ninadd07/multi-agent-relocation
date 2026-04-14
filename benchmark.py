@@ -1,18 +1,3 @@
-# benchmark_gui.py
-# Cleaner visual benchmark runner for the centralized-planning architecture.
-# Features:
-# - Better-looking dashboard UI
-# - Algorithm buttons
-# - Start / Pause / Reset
-# - Live current-map preview with moving robots
-# - Per-map results for 10 maps
-# - Overall summary stats
-#
-# Expected map files:
-#   maps/mars_map_1.json
-#   maps/mars_map_2.json
-#   ...
-#   maps/mars_map_10.json
 
 import os
 import json
@@ -38,8 +23,9 @@ from algorithms.obstacles import Obstacle, RectObstacle
 MAP_FILES = [f"mars_map_{i}.json" for i in range(1, 11)]
 RUNS_PER_MAP = 5
 
-WINDOW_WIDTH = 1720
-WINDOW_HEIGHT = 980
+# Design-space / base canvas size
+BASE_WIDTH = 1720
+BASE_HEIGHT = 980
 
 LEFT_PANEL_WIDTH = 500
 MAP_VIEW_WIDTH = 1160
@@ -144,6 +130,22 @@ def draw_card(surface, rect, fill=CARD_BG, border=PANEL_BORDER, radius=10):
     pygame.draw.rect(surface, border, rect, 1, border_radius=radius)
 
 
+def get_initial_window_size():
+    info = pygame.display.Info()
+    width = min(BASE_WIDTH, max(1100, info.current_w - 80))
+    height = min(BASE_HEIGHT, max(700, info.current_h - 100))
+    return width, height
+
+
+def scale_mouse_pos(raw_mouse_pos, base_width, base_height, window_width, window_height):
+    scale_x = base_width / max(window_width, 1)
+    scale_y = base_height / max(window_height, 1)
+    return (
+        int(raw_mouse_pos[0] * scale_x),
+        int(raw_mouse_pos[1] * scale_y),
+    )
+
+
 # ----------------------------
 # UI
 # ----------------------------
@@ -196,7 +198,7 @@ class BenchmarkState:
         self.elapsed_time_ms = 0.0
         self.completion_time_ms = None
         self.use_electric = False
-        self.replan_interval_ms = 500
+        self.replan_interval_ms = 2000
         self.replan_accumulator_ms = 0.0
 
         self.start_center = (100, 100)
@@ -546,9 +548,16 @@ def draw_stats_panel(surface, state, left_rect, fonts, algo_buttons, mouse_pos):
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+
+    base_width = BASE_WIDTH
+    base_height = BASE_HEIGHT
+
+    window_width, window_height = get_initial_window_size()
+    screen = pygame.display.set_mode((window_width, window_height), pygame.RESIZABLE)
     pygame.display.set_caption("MARS Benchmark Viewer")
     clock = pygame.time.Clock()
+
+    base_surface = pygame.Surface((base_width, base_height))
 
     font_title = pygame.font.SysFont("Segoe UI", 30, bold=True)
     font_subtitle = pygame.font.SysFont("Segoe UI", 20, bold=True)
@@ -557,7 +566,7 @@ def main():
     font_tiny = pygame.font.SysFont("Segoe UI", 13)
     font_label = pygame.font.SysFont("Segoe UI", 12, bold=True)
 
-    left_panel = pygame.Rect(0, 0, LEFT_PANEL_WIDTH, WINDOW_HEIGHT)
+    left_panel = pygame.Rect(0, 0, LEFT_PANEL_WIDTH, BASE_HEIGHT)
     map_rect = pygame.Rect(LEFT_PANEL_WIDTH + 24, 70, MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT)
 
     algo_buttons = []
@@ -589,33 +598,54 @@ def main():
         dt = now - last_tick
         last_tick = now
 
-        mouse_pos = pygame.mouse.get_pos()
+        raw_mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = scale_mouse_pos(
+            raw_mouse_pos,
+            base_width,
+            base_height,
+            window_width,
+            window_height,
+        )
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            elif event.type == pygame.VIDEORESIZE:
+                window_width, window_height = max(900, event.w), max(600, event.h)
+                screen = pygame.display.set_mode((window_width, window_height), pygame.RESIZABLE)
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                event_mouse_pos = mouse_pos
+                if hasattr(event, "pos"):
+                    event_mouse_pos = scale_mouse_pos(
+                        event.pos,
+                        base_width,
+                        base_height,
+                        window_width,
+                        window_height,
+                    )
+
                 for b in algo_buttons:
-                    if b.hit(mouse_pos):
+                    if b.hit(event_mouse_pos):
                         state.switch_algo(b.value)
 
-                if start_btn.hit(mouse_pos):
+                if start_btn.hit(event_mouse_pos):
                     state.start()
 
-                if pause_btn.hit(mouse_pos):
+                if pause_btn.hit(event_mouse_pos):
                     if state.running:
                         state.paused = not state.paused
 
-                if reset_btn.hit(mouse_pos):
+                if reset_btn.hit(event_mouse_pos):
                     state.reset_all_results()
 
         state.update_step(dt)
 
-        screen.fill(BG)
+        base_surface.fill(BG)
 
         draw_stats_panel(
-            screen,
+            base_surface,
             state,
             left_panel,
             (font_title, font_subtitle, font_text, font_small, font_tiny),
@@ -623,11 +653,11 @@ def main():
             mouse_pos,
         )
 
-        start_btn.draw(screen, font_text, hovered=start_btn.hit(mouse_pos))
-        pause_btn.draw(screen, font_text, hovered=pause_btn.hit(mouse_pos))
-        reset_btn.draw(screen, font_text, hovered=reset_btn.hit(mouse_pos))
+        start_btn.draw(base_surface, font_text, hovered=start_btn.hit(mouse_pos))
+        pause_btn.draw(base_surface, font_text, hovered=pause_btn.hit(mouse_pos))
+        reset_btn.draw(base_surface, font_text, hovered=reset_btn.hit(mouse_pos))
 
-        draw_map_preview(screen, state, map_rect, font_label, font_tiny, font_subtitle)
+        draw_map_preview(base_surface, state, map_rect, font_label, font_tiny, font_subtitle)
 
         status_y = map_rect.bottom + 16
         if state.running:
@@ -635,11 +665,13 @@ def main():
         else:
             status = "IDLE"
 
-        screen.blit(font_text.render(f"Status: {status}", True, BLACK), (map_rect.x, status_y))
-        screen.blit(font_text.render(f"Algorithm: {state.selected_algo}", True, BLACK), (map_rect.x + 180, status_y))
-        screen.blit(font_text.render(f"Map: {state.current_map_name() or '-'}", True, BLACK), (map_rect.x + 430, status_y))
-        screen.blit(font_text.render(f"Elapsed: {state.elapsed_time_ms / 1000.0:.2f}s", True, BLACK), (map_rect.x + 700, status_y))
+        base_surface.blit(font_text.render(f"Status: {status}", True, BLACK), (map_rect.x, status_y))
+        base_surface.blit(font_text.render(f"Algorithm: {state.selected_algo}", True, BLACK), (map_rect.x + 180, status_y))
+        base_surface.blit(font_text.render(f"Map: {state.current_map_name() or '-'}", True, BLACK), (map_rect.x + 430, status_y))
+        base_surface.blit(font_text.render(f"Elapsed: {state.elapsed_time_ms / 1000.0:.2f}s", True, BLACK), (map_rect.x + 700, status_y))
 
+        scaled_surface = pygame.transform.smoothscale(base_surface, (window_width, window_height))
+        screen.blit(scaled_surface, (0, 0))
         pygame.display.flip()
         clock.tick(FPS)
 

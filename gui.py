@@ -11,7 +11,7 @@ from PIL import Image
 from config import *
 from parking import SmartExit, get_grid_positions
 from fundamental import Agent, CentralManager
-from algorithms.field import update_electric
+from algorithms.field import update_electric, ElectricFieldPlanner, ElectricFieldManager
 from algorithms.standard import GlobalPlanner
 from algorithms.standard_queue import QueuePlanner
 from algorithms.discrete_grid import Discretisation
@@ -277,7 +277,7 @@ def main():
     algo_dropdown_right = Dropdown(bx, algo_right_y, bw, 28, algo_options, default_index=4)
 
     def _get_planner_mode(idx):
-        return {1: 'penalized', 2: 'tbc'}.get(idx, 'penalized')
+        return {1: 'penalized', 2: 'tbc'}.get(idx, 'standard')
     
     grid_y = algo_right_y + 40
     btn_show_grid = Button(bx, grid_y, bw, 28, "Show Grid", "TOGGLE_GRID", toggle=True)
@@ -353,17 +353,23 @@ def main():
                 if dropdown.handle_event(event):
                     dropdown_consumed = True
                     if dropdown.selected_index != prev_algo and state in ["RUNNING", "PAUSED"]:
-                        if dropdown.selected_index == 3:
+                        if dropdown.selected_index == 0:
+                            sim.planner = ElectricFieldPlanner(custom_obstacles)
+                            sim.central_manager = ElectricFieldManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 3:
                             sim.planner = Discretisation(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         elif dropdown.selected_index == 4:
                             sim.planner = ThetaStarPlanner(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         elif dropdown.selected_index == 5:
                             sim.planner = QueuePlanner(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         else:
                             sim.planner = GlobalPlanner(custom_obstacles, mode=_get_planner_mode(dropdown.selected_index))
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         
                         if sim.central_manager:
-                            sim.central_manager.planner = sim.planner
                             sim.central_manager.plan_all_paths(sim.agents)
 
             # 2. Buttons
@@ -508,28 +514,32 @@ def main():
                     print("Initializing Dual Simulation...")
                     for sim, dropdown in [(sim_left, algo_dropdown_left), (sim_right, algo_dropdown_right)]:
                         
-                        # 1. Setup Planners
-                        if dropdown.selected_index == 3:
-                            sim.planner = Discretisation(custom_obstacles)
-                        elif dropdown.selected_index == 4:
-                            sim.planner = ThetaStarPlanner(custom_obstacles)
-                        elif dropdown.selected_index == 5:
-                            sim.planner = QueuePlanner(custom_obstacles)
-                        else:
-                            sim.planner = GlobalPlanner(custom_obstacles, mode=_get_planner_mode(dropdown.selected_index))
-                        
                         sim.exit_manager = SmartExit(end_rect)
                         
-                        # 2. Initialize Central Manager
-                        sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
+                        # 1. Setup Planners + Central Manager
+                        if dropdown.selected_index == 0:
+                            sim.planner = ElectricFieldPlanner(custom_obstacles)
+                            sim.central_manager = ElectricFieldManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 3:
+                            sim.planner = Discretisation(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 4:
+                            sim.planner = ThetaStarPlanner(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 5:
+                            sim.planner = QueuePlanner(custom_obstacles)
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
+                        else:
+                            sim.planner = GlobalPlanner(custom_obstacles, mode=_get_planner_mode(dropdown.selected_index))
+                            sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         
-                        # 3. Spawn Dumb Agents (Local Controllers)
+                        # 2. Spawn Dumb Agents (Local Controllers)
                         sim.agents = []
                         for pos in spawn_positions:
                             agent = Agent(pos, sim.exit_manager)
                             sim.agents.append(agent)
                             
-                        # 4. Central Manager does the initial path planning
+                        # 3. Central Manager does the initial path planning
                         sim.central_manager.plan_all_paths(sim.agents)
                         if isinstance(sim.planner, QueuePlanner):
                             sim.planner.reset_queue(sim.agents)

@@ -14,6 +14,7 @@ from fundamental import clamp
 
 # How far the predecessor must travel before the next agent is released.
 QUEUE_SPACING = AGENT_DIAMETER
+QUEUE_RELEASE_RADIUS = AGENT_DIAMETER * 4
 
 
 def _dist(p1, p2):
@@ -47,73 +48,130 @@ class QueuePlanner:
     # Queue state
     # ------------------------------------------------------------------
     def reset_queue(self, agents=None):
-        """Call after a fresh plan_all_paths. All agents start moving freely."""
-        if agents:
-            for agent in agents:
+        self._released = set()
+        self._release_pos = {}
+
+        if not agents:
+            return
+
+        sorted_agents = sorted(
+            [a for a in agents if a.active and not a.spot_reserved and hasattr(a, "index")],
+            key=lambda a: a.index,
+        )
+
+        for agent in sorted_agents:
+            if agent.index == 1:
                 agent.waiting = False
+                self._released.add(agent.index)
+                self._release_pos[agent.index] = pygame.Vector2(agent.pos)
+            else:
+                agent.waiting = True
 
     def tick(self, agents):
-        """
-        Exact copy of reference algorithms.py local_safety_check,
-        applied to all agents each frame by the planner.
-
-        - Resets waiting=False each frame
-        - Skips if velocity == 0 (reference returns early)
-        - Checks ALL other active agents in the forward heading cone
-          (dot > 0.7, within VIEW_DISTANCE) — first match wins
-        """
-        for agent in agents:
-            agent.waiting = False
-            if not agent.active or agent.spot_reserved:
-                continue
-            if agent.velocity.length() <= 0:
-                continue                          # reference returns early here
-            heading = agent.velocity.normalize()
-            for other in agents:
-                if other is agent or not other.active or other.spot_reserved:
-                    continue
-                d_vec    = other.pos - agent.pos
-                distance = d_vec.length()
-                if distance < 0.1:
-                    continue
-                if distance < VIEW_DISTANCE:
-                    d_norm = d_vec.normalize()
-                    if heading.dot(d_norm) > 0.7:
-                        agent.waiting = True
-                        break                     # reference returns on first match
-
-
-    def enforce_queue(self, agents):
-        """
-        Hard-constraint enforcer — call AFTER resolve_collision each frame.
-        Processes agents front-to-back (index 1 = front).  If any agent has
-        been pushed within QUEUE_SPACING of its predecessor by the physics, it
-        is repositioned and its velocity zeroed so the gap is strictly maintained.
-        """
         sorted_agents = sorted(
-            [a for a in agents if a.active and not a.spot_reserved and hasattr(a, 'index')],
+            [a for a in agents if a.active and not a.spot_reserved and hasattr(a, "index")],
+            key=lambda a: a.index,
+        )
+
+        if not sorted_agents:
+            return
+
+        idx_map = {a.index: a for a in sorted_agents}
+
+        first = sorted_agents[0]
+        if first.index not in self._released:
+            self._released.add(first.index)
+            self._release_pos[first.index] = pygame.Vector2(first.pos)
+            first.waiting = False
+
+        for agent in sorted_agents:
+            # Relax queueing once agent is near / inside destination region
+            if hasattr(agent, "exit_manager") and agent.exit_manager is not None:
+                expanded_end = agent.exit_manager.rect.inflate(40, 40)
+                if expanded_end.collidepoint(agent.pos.x, agent.pos.y):
+                    agent.waiting = False
+                    continue
+
+            if agent.index == 1:
+                agent.waiting = False
+                continue
+
+            pred_idx = agent.index - 1
+            pred = idx_map.get(pred_idx)
+
+            # IMPORTANT FIX:
+            # If predecessor is missing from idx_map, it most likely already entered
+            # the exit zone and became spot_reserved. In that case, do NOT block.
+            if pred is None:
+                if agent.index not in self._released:
+                    self._released.add(agent.index)
+                    self._release_pos[agent.index] = pygame.Vector2(agent.pos)
+                agent.waiting = False
+                continue
+
+            # If predecessor is near destination, do not keep strict queueing
+            if hasattr(agent, "exit_manager") and agent.exit_manager is not None:
+                expanded_end = agent.exit_manager.rect.inflate(40, 40)
+                if expanded_end.collidepoint(pred.pos.x, pred.pos.y):
+                    agent.waiting = False
+                    continue
+
+            if agent.index not in self._released:
+                pred_release_pos = self._release_pos.get(pred.index)
+                if pred_release_pos is None:
+                    agent.waiting = True
+                    continue
+
+                dist_from_pred_release = pred.pos.distance_to(pred_release_pos)
+
+                if dist_from_pred_release >= QUEUE_SPACING:
+                    self._released.add(agent.index)
+                    self._release_pos[agent.index] = pygame.Vector2(agent.pos)
+                    agent.waiting = False
+                else:
+                    agent.waiting = True
+                    continue
+
+            distance_to_pred = agent.pos.distance_to(pred.pos)
+            agent.waiting = distance_to_pred < QUEUE_SPACING
+    def enforce_queue(self, agents):
+        sorted_agents = sorted(
+            [a for a in agents if a.active and not a.spot_reserved and hasattr(a, "index")],
             key=lambda a: a.index,
         )
         idx_map = {a.index: a for a in sorted_agents}
 
         for agent in sorted_agents:
-            pred_idx = agent.index - 1
-            if pred_idx < 1:
+            if agent.index == 1:
                 continue
-            pred = idx_map.get(pred_idx)
+
+            # Do not enforce queue spacing near the destination
+            if hasattr(agent, "exit_manager") and agent.exit_manager is not None:
+                goal = pygame.Vector2(agent.exit_manager.center_pixel)
+                if agent.pos.distance_to(goal) < QUEUE_RELEASE_RADIUS:
+                    continue
+
+            pred = idx_map.get(agent.index - 1)
             if pred is None:
                 continue
 
+            # Also stop queue enforcement if predecessor is already near the destination
+            if hasattr(agent, "exit_manager") and agent.exit_manager is not None:
+                goal = pygame.Vector2(agent.exit_manager.center_pixel)
+                if pred.pos.distance_to(goal) < QUEUE_RELEASE_RADIUS:
+                    continue
+
             distance = agent.pos.distance_to(pred.pos)
+
             if distance < QUEUE_SPACING:
-                # Push agent back to restore spacing and flag it as waiting.
-                # We set waiting=True instead of zeroing velocity so that tick()
-                # still has a valid heading reference on the next frame.
                 if distance > 0.01:
                     push_dir = (agent.pos - pred.pos).normalize()
-                    agent.pos = pygame.Vector2(pred.pos + push_dir * QUEUE_SPACING)
-                agent.waiting = True
+                else:
+                    push_dir = pygame.Vector2(-1, 0)
 
+                agent.pos = pygame.Vector2(pred.pos + push_dir * QUEUE_SPACING)
+                agent.velocity = pygame.Vector2(0, 0)
+                agent.waiting = True
     # ------------------------------------------------------------------
     # Visibility-graph helpers (self-contained, no fundamental.astar_*)
     # ------------------------------------------------------------------

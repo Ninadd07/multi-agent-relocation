@@ -29,7 +29,7 @@ def _build_path_segments(predecessor_paths):
     return segments
 
 class Discretisation:
-    def __init__(self, obstacles=None, base_grid=24, min_grid=8):
+    def __init__(self, obstacles=None, base_grid=40, min_grid=20):
         """
         base_grid: maximum size for a cell (coarse resolution)
         min_grid: minimum size for a cell (fine resolution near obstacles)
@@ -77,9 +77,9 @@ class Discretisation:
             # We check if the cell, inflated by the robot's radius, collides with any obstacle.
             # This determines if we need to subdivide for higher resolution.
             cell_rect_inflated = pygame.Rect(
-                x0 - robot_radius, 
-                y0 - robot_radius, 
-                w + 2 * robot_radius, 
+                x0 - robot_radius,
+                y0 - robot_radius,
+                w + 2 * robot_radius,
                 h + 2 * robot_radius
             )
 
@@ -116,7 +116,7 @@ class Discretisation:
     def get_cell_index(self, x, y, grid_cells):
         best_idx = -1
         min_dist = float('inf')
-        
+
         for i, (cx, cy, w, h, is_free) in enumerate(grid_cells):
             if cx <= x <= cx + w and cy <= y <= cy + h:
                 return i
@@ -125,7 +125,7 @@ class Discretisation:
             if d < min_dist:
                 min_dist = d
                 best_idx = i
-                
+
         return best_idx
 
     def build_adjacency(self, grid_cells):
@@ -162,7 +162,7 @@ class Discretisation:
                 touch_y = (abs(dy_val - sum_h) < EPS) and (dx_val < sum_w - EPS)
                 touch_diag = (abs(dx_val - sum_w) < EPS) and (abs(dy_val - sum_h) < EPS)
 
-                if touch_x or touch_y or touch_diag:
+                if touch_x or touch_y:
                     edge_dist = math.hypot(bx - ax, by - ay)
                     neighbors_map[a_idx].append((b_idx, bx, by, edge_dist))
 
@@ -171,10 +171,10 @@ class Discretisation:
     def smooth_path(self, path, radius):
         if not path or len(path) < 3:
             return path
-            
+
         smoothed = [path[0]]
         current_idx = 0
-        
+
         while current_idx < len(path) - 1:
             next_idx = current_idx + 1
             for i in range(len(path) - 1, current_idx + 1, -1):
@@ -183,7 +183,7 @@ class Discretisation:
                     break
             smoothed.append(path[next_idx])
             current_idx = next_idx
-            
+
         return smoothed
 
     def is_segment_safe(self, p1, p2, radius):
@@ -192,16 +192,17 @@ class Discretisation:
         seg_dist = math.hypot(x2 - x1, y2 - y1)
         if seg_dist < 1e-3:
             return True
-            
-        step_size = radius * 0.5
+
+        step_size = radius * 0.25
         steps = int(math.ceil(seg_dist / step_size))
-        safety_margin = 0.2
+        safety_margin = 3
+
         check_radius = radius + safety_margin
         for i in range(steps + 1):
             t = i / steps
             px = x1 + (x2 - x1) * t
             py = y1 + (y2 - y1) * t
-            
+
             # Check for collision against the true shape of the obstacle.
             # This ensures the smoothed path correctly avoids the actual obstacle boundaries.
             for obs in self.obstacles:
@@ -226,7 +227,7 @@ class Discretisation:
 
         grid_cells = self.cached_grid
         neighbors_map = self.cached_neighbors
-        
+
         start_idx = self.get_cell_index(robot.x, robot.y, grid_cells)
         end_idx = self.get_cell_index(target[0], target[1], grid_cells)
 
@@ -302,14 +303,14 @@ class Discretisation:
             for i in range(len(path_indices) - 1):
                 cell1 = grid_cells[path_indices[i]]
                 cell2 = grid_cells[path_indices[i+1]]
-                
+
                 rect1 = pygame.Rect(cell1[0], cell1[1], cell1[2], cell1[3])
                 rect2 = pygame.Rect(cell2[0], cell2[1], cell2[2], cell2[3])
-                
+
                 # The 'clip' method gives the intersection of two rects. For adjacent
                 # grid cells, this intersection is their shared edge (a thin rectangle).
                 shared_edge = rect1.clip(rect2)
-                
+
                 # The center of this shared edge is a much better waypoint than the cell center.
                 raw_path.append(shared_edge.center)
 

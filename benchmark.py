@@ -11,7 +11,7 @@ from parking import SmartExit, get_grid_positions
 from fundamental import Agent, CentralManager
 from algorithms.field import update_electric
 from algorithms.standard import GlobalPlanner
-from algorithms.standard_queue import QueuePlanner
+!from algorithms.standard_queue import QueuePlanner
 from algorithms.discrete_grid import Discretisation
 from algorithms.thetastar import ThetaStarPlanner
 from algorithms.obstacles import Obstacle, RectObstacle
@@ -116,7 +116,7 @@ def percentile(sorted_data, p):
 def should_periodic_replan(algo_name):
     # Optimized policy:
     # skip frequent replanning for electric / penalized / queue
-    return algo_name in {"standard", "tbc", "discrete", "theta"}
+    return algo_name in {"standard", "tbc", "theta"}
 
 
 def fmt_time(v):

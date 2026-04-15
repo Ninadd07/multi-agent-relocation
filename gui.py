@@ -13,6 +13,7 @@ from parking import SmartExit, get_grid_positions
 from fundamental import Agent, CentralManager
 from algorithms.field import update_electric, ElectricFieldPlanner, ElectricFieldManager
 from algorithms.standard import GlobalPlanner
+from algorithms.standard_plain import StandardPlainPlanner, StandardPlainManager
 from algorithms.standard_queue import QueuePlanner
 from algorithms.discrete_grid import Discretisation
 from algorithms.thetastar import ThetaStarPlanner
@@ -272,12 +273,12 @@ def main():
     
     algo_left_y = by + 100
     algo_right_y = algo_left_y + 60
-    algo_options = ["Electric Field", "Standard (Penalized)", "TBC", "Discrete Grid", "Theta*", "Standard Queue"]
+    algo_options = ["Standard A*", "Electric Field", "Standard (Penalized)", "TBC", "Discrete Grid", "Theta*", "Standard Queue"]
     algo_dropdown_left = Dropdown(bx, algo_left_y, bw, 28, algo_options, default_index=0)
-    algo_dropdown_right = Dropdown(bx, algo_right_y, bw, 28, algo_options, default_index=4)
+    algo_dropdown_right = Dropdown(bx, algo_right_y, bw, 28, algo_options, default_index=5)
 
     def _get_planner_mode(idx):
-        return {1: 'penalized', 2: 'tbc'}.get(idx, 'standard')
+        return {2: 'penalized', 3: 'tbc'}.get(idx, 'standard')
     
     grid_y = algo_right_y + 40
     btn_show_grid = Button(bx, grid_y, bw, 28, "Show Grid", "TOGGLE_GRID", toggle=True)
@@ -354,15 +355,18 @@ def main():
                     dropdown_consumed = True
                     if dropdown.selected_index != prev_algo and state in ["RUNNING", "PAUSED"]:
                         if dropdown.selected_index == 0:
+                            sim.planner = StandardPlainPlanner(custom_obstacles)
+                            sim.central_manager = StandardPlainManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 1:
                             sim.planner = ElectricFieldPlanner(custom_obstacles)
                             sim.central_manager = ElectricFieldManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 3:
+                        elif dropdown.selected_index == 4:
                             sim.planner = Discretisation(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 4:
+                        elif dropdown.selected_index == 5:
                             sim.planner = ThetaStarPlanner(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 5:
+                        elif dropdown.selected_index == 6:
                             sim.planner = QueuePlanner(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         else:
@@ -518,15 +522,18 @@ def main():
                         
                         # 1. Setup Planners + Central Manager
                         if dropdown.selected_index == 0:
+                            sim.planner = StandardPlainPlanner(custom_obstacles)
+                            sim.central_manager = StandardPlainManager(sim.planner, sim.exit_manager)
+                        elif dropdown.selected_index == 1:
                             sim.planner = ElectricFieldPlanner(custom_obstacles)
                             sim.central_manager = ElectricFieldManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 3:
+                        elif dropdown.selected_index == 4:
                             sim.planner = Discretisation(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 4:
+                        elif dropdown.selected_index == 5:
                             sim.planner = ThetaStarPlanner(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
-                        elif dropdown.selected_index == 5:
+                        elif dropdown.selected_index == 6:
                             sim.planner = QueuePlanner(custom_obstacles)
                             sim.central_manager = CentralManager(sim.planner, sim.exit_manager)
                         else:
@@ -543,6 +550,8 @@ def main():
                         sim.central_manager.plan_all_paths(sim.agents)
                         if isinstance(sim.planner, QueuePlanner):
                             sim.planner.reset_queue(sim.agents)
+                        if isinstance(sim.planner, StandardPlainPlanner):
+                            sim.use_electric = False
                                 
                     state = "RUNNING"
                     start_time = pygame.time.get_ticks()
@@ -575,7 +584,7 @@ def main():
                     sim.elapsed_time_ms += dt * sim_speed
 
             for sim, dropdown in [(sim_left, algo_dropdown_left), (sim_right, algo_dropdown_right)]:
-                sim.use_electric = (dropdown.selected_index == 0)
+                sim.use_electric = (dropdown.selected_index == 1)
                 if isinstance(sim.planner, Discretisation): sim.planner.set_agents(sim.agents)
 
             for _ in range(sim_speed):
